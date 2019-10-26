@@ -72,6 +72,54 @@ public:
         case 0x2E:
           CS_PRE(p+1);
           break;
+        case 0x50:
+          PUSHw("eAX");
+          break;
+        case 0x51:
+          PUSHw("eCX");
+          break;
+        case 0x52:
+          PUSHw("eDX");
+          break;
+        case 0x53:
+          PUSHw("eBX");
+          break;
+        case 0x54:
+          PUSHw("eSP");
+          break;
+        case 0x55:
+          PUSHw("eBP");
+          break;
+        case 0x56:
+          PUSHw("eSI");
+          break;
+        case 0x57:
+          PUSHw("eDI");
+          break;
+        case 0x58:
+          POPw("eAX");
+          break;
+        case 0x59:
+          POPw("eCX");
+          break;
+        case 0x5A:
+          POPw("eDX");
+          break;
+        case 0x5B:
+          POPw("eBX");
+          break;
+        case 0x5C:
+          POPw("eSP");
+          break;
+        case 0x5D:
+          POPw("eBP");
+          break;
+        case 0x5E:
+          POPw("eSI");
+          break;
+        case 0x5F:
+          POPw("eDI");
+          break;
         case 0x88:
           MOVb(p+1, "Eb", "Gb");
           break;
@@ -243,6 +291,16 @@ private:
   }
   void OUT(const char *a, const char *b) {
     cout << "NotImplemented: OUT: " << a << ", " << b << endl;
+  }
+  void POPw(const char* mc) {
+    uint16_t &r = get_register_w_by_name(mc);
+    r = mem.get<uint16_t>(reg.SS, reg.SP);
+    reg.SP += 2;
+  }
+  void PUSHw(const char* mc) {
+    uint16_t &r = get_register_w_by_name(mc);
+    reg.SP -= 2;
+    mem.get<uint16_t>(reg.SS, reg.SP) = r;
   }
   void RET() {
     reg.IP = mem.get<uint16_t>(reg.SS, reg.SP);
