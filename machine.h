@@ -1,6 +1,8 @@
 #pragma once
 #include <iostream>
+#include <functional>
 #include <fstream>
+#include <map>
 #include <string>
 #include <vector>
 #include <cstdio>
@@ -53,12 +55,16 @@ public:
       getline(fin, line);
     }
   }
+  void inject_qqt() {
+    uint16_t base_addr = 0x7E00;
+    mem.get(base_addr + 0x17D) = 0xD8;
+    inject_functions[base_addr + 0x17D] = std::bind(&Machine::ReadFloppy, this);
+  }
   void run() {
     while (1) {
       uint32_t addr = get_addr(reg.CS, reg.IP);
       uint8_t *p = &(mem.get(addr));
       cout << hex2str(addr) << " OP:" << hex2str(*p) << endl;
-      reg.IP = (reg.IP + 1) % 0xFFFF;
       switch (*p) {
         case 0x24:
           AND(p+1, "AL", "Ib"); 
@@ -123,8 +129,14 @@ public:
         case 0xCD:
           INT(p+1);
           break;
+        case 0xD8:
+          CallInjectFunc();
+          break;
         case 0xE2:
           LOOP(p+1);
+          break;
+        case 0xE8:
+          CALL(p+1);
           break;
         case 0xEE:
           OUT("DX", "AL");
@@ -132,6 +144,7 @@ public:
         default:
           LOG(FATAL) << "Unknown OpCode: " << hex2str(*p);
       }
+      reg.IP += 1;
     }
   }
 private:
@@ -177,6 +190,12 @@ private:
     lv &= rv;
     UpdateFlag(lv);
     reg.IP += 1;
+  }
+  void CALL(uint8_t *p) {
+    reg.SP -= 2;
+    reg.IP += 2;
+    mem.get<uint16_t>(reg.SS, reg.SP) = reg.IP;
+    reg.IP += *reinterpret_cast<uint16_t*>(p);
   }
   void CS_PRE(uint8_t *p) {
     uint16_t &seg = reg.CS;
@@ -224,6 +243,10 @@ private:
   }
   void OUT(const char *a, const char *b) {
     cout << "NotImplemented: OUT: " << a << ", " << b << endl;
+  }
+  void RET() {
+    reg.IP = mem.get<uint16_t>(reg.SS, reg.SP);
+    reg.SS += 2;
   }
   void SHL1b(uint8_t *p) {
     const ModRM& modrm = *reinterpret_cast<ModRM*>(p);
@@ -388,12 +411,21 @@ private:
     LOG(FATAL) << "FAIL";
     return reg.AX;
   }
-  inline uint32_t get_addr(uint16_t seg, uint16_t offset) {
-    return (uint32_t(seg) << 4) + uint32_t(offset);
+private:
+  void CallInjectFunc() {
+    if (inject_functions.count(reg.IP)) {
+      inject_functions[reg.IP]();
+    }
+  }
+private:
+  void ReadFloppy() {
+    cout << "Read Floppy..." << endl;
+    RET();
   }
 private:
   Registers reg;
   Memory mem;
   const char hexch[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
+  map<uint32_t, std::function<void()> > inject_functions;
 };
 
