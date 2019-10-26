@@ -11,7 +11,6 @@ using namespace std;
 #include "register.h"
 #include "instruction.h"
 #include "memory.h"
-#include "opcode.h"
 
 template <typename T>
 void PrintBits(T value, int n) {
@@ -57,14 +56,68 @@ public:
     while (1) {
       uint16_t addr = (reg.CS << 4) + reg.IP;
       uint8_t *p = &(mem.get(addr));
-      switch (*(p + 1)) {
+      cout << hex2str(addr) << " OP:" << hex2str(*p) << endl;
+      switch (*p) {
+        case 0x88:
+          MOVb(p+1, "Eb", "Gb");
+          break;
         case 0x8C:
-          MOV(p, "Ew", "Sw");
-          reg.IP += 2;
+          MOVw(p+1, "Ew", "Sw");
+          break;
+        case 0x8E:
+          MOVw(p+1, "Sw", "Ew");
+          break;
+        case 0xB0:
+          MOVib(p+1, "AL", "Ib");
+          break;
+        case 0xB1:
+          MOVib(p+1, "CL", "Ib");
+          break;
+        case 0xB2:
+          MOVib(p+1, "DL", "Ib");
+          break;
+        case 0xB3:
+          MOVib(p+1, "BL", "Ib");
+          break;
+        case 0xB4:
+          MOVib(p+1, "AH", "Ib");
+          break;
+        case 0xB5:
+          MOVib(p+1, "CH", "Ib");
+          break;
+        case 0xB6:
+          MOVib(p+1, "DH", "Ib");
+          break;
+        case 0xB7:
+          MOVib(p+1, "BH", "Ib");
+          break;
+        case 0xB8:
+          MOViw(p+1, "eAX", "Iv");
+          break;
+        case 0xB9:
+          MOViw(p+1, "eCX", "Iv");
+          break;
+        case 0xBA:
+          MOViw(p+1, "eDX", "Iv");
+          break;
+        case 0xBB:
+          MOViw(p+1, "eBX", "Iv");
+          break;
+        case 0xBC:
+          MOViw(p+1, "eSP", "Iv");
+          break;
+        case 0xC0:
+          SHRib(p+1, "Eb", "Ib");
+          break;
+        case 0xCD:
+          INT(p+1);
+          break;
+        case 0xEE:
+          OUT("DX", "AL");
           break;
         default:
-          LOG(FATAL) << "Unknown OpCode: " << hex2str(*(p+1));
-      };
+          LOG(FATAL) << "Unknown OpCode: " << hex2str(*p);
+      }
     }
   }
 private:
@@ -78,14 +131,9 @@ private:
       address += hex2dec(c) * (1 << ((7 - i) * 4));
     }
     while (line[i] == ' ') ++i;
-    stack<uint8_t> st;
     while (line[i] != ' ') {
-      st.push(hex2dec(line[i]));
-      ++i;
-    }
-    while(!st.empty()) {
-      uint8_t low = st.top(); st.pop();
-      uint8_t high = st.top(); st.pop();
+      uint8_t high = hex2dec(line[i++]);
+      uint8_t low = hex2dec(line[i++]);
       mem.get<uint8_t>(address++) = (high << 4) + low;
     }
   }
@@ -109,17 +157,74 @@ private:
     return res;
   }
 private:
-  void MOV(uint8_t *p, const char* mc1, const char* mc2) {
+  void INT(uint8_t *p) {
+    cout << "NotImplemented: INT 0x" << hex2str(*p) << endl;
+    reg.IP += 2;
+  }
+  void OUT(const char *a, const char *b) {
+    cout << "NotImplemented: OUT: " << a << ", " << b << endl;
+    reg.IP += 1;
+  }
+  void MOVib(uint8_t *p, const char* mc1, const char* mc2) {
+    uint8_t& rv = *reinterpret_cast<uint8_t*>(p + 1);
+    uint8_t& lv = get_register_b_by_name(mc1);
+    lv = rv;
+    reg.IP += 2;
+  }
+  void MOViw(uint8_t *p, const char* mc1, const char* mc2) {
+    uint16_t& rv = *reinterpret_cast<uint16_t*>(p + 1);
+    uint16_t& lv = get_register_w_by_name(mc1);
+    lv = rv;
+    reg.IP += 3;
+  }
+  void MOVb(uint8_t *p, const char* mc1, const char* mc2) {
     const ModRM& modrm = *reinterpret_cast<ModRM*>(p);
-    if (mc1[1] == 'w' && mc2[1] == 'w') {
-      uint16_t& rv = get_register_w(modrm.REG, mc2[0]);
-      uint16_t& lv = get_modrm_w(modrm.MOD, modrm.RM);
-      lv = rv;
-    } else {
-      LOG(FATAL) << "FAIL";
-    }
+    CHECK(mc1[0] == 'E');
+    CHECK(mc2[0] == 'G');
+    uint8_t& rv = get_register_b(modrm.REG);
+    uint8_t& lv = get_register_b(modrm.RM);
+    lv = rv;
+    reg.IP += 2;
+  }
+  void MOVw(uint8_t *p, const char* mc1, const char* mc2) {
+    const ModRM& modrm = *reinterpret_cast<ModRM*>(p);
+    uint16_t& rv = get_register_w(modrm.REG, mc2[0]);
+    uint16_t& lv = get_modrm_w(modrm.MOD, modrm.RM);
+    lv = rv;
+    reg.IP += 2;
+  }
+  void SHRib(uint8_t *p, const char* mc1, const char* mc2) {
+    CHECK_EQ((*p) & 0xF8, 0xE8);
+    CHECK(mc1[0] == 'E');
+    CHECK(mc2[0] == 'I');
+    uint8_t& lv = get_register_b((*p)&0x7);
+    uint8_t& rv = *reinterpret_cast<uint8_t*>(p + 1);
+    lv >>= rv;
+    reg.IP += 3;
   }
 private:
+  uint8_t& get_register_b(const uint8_t REG) {
+    switch (REG) {
+      case 0:
+        return reg.AL;
+      case 1:
+        return reg.CL;
+      case 2:
+        return reg.DL;
+      case 3:
+        return reg.BL;
+      case 4:
+        return reg.AH;
+      case 5:
+        return reg.CH;
+      case 6:
+        return reg.DH;
+      case 7:
+        return reg.BH;
+    }
+    LOG(INFO) << "Unknown Register";
+    return reg.AL;
+  }
   uint16_t& get_register_w(const uint8_t REG, const char c) {
     switch (c) {
       case 'S':
@@ -134,7 +239,7 @@ private:
             return reg.CS;
           case 6:
             return reg.IP;
-        };
+        }
         break;
       case 'E': 
         switch (REG) {
@@ -154,9 +259,9 @@ private:
             return reg.SI;
           case 7:
             return reg.DI;
-        };
+        }
         break;
-    };
+    }
     LOG(INFO) << "Unknown Register";
     return reg.AX;
   }
@@ -180,10 +285,40 @@ private:
             return reg.SI;
           case 7:
             return reg.DI;
-        };
+        }
         break;
-    };
+    }
     LOG(INFO) << "Unknown MoDRM";
+    return reg.AX;
+  }
+  uint8_t& get_register_b_by_name(const char* name) {
+    switch (name[0]) {
+      case 'A':
+        return name[1] == 'L' ? reg.AL : reg.AH;
+      case 'C':
+        return name[1] == 'L' ? reg.CL : reg.CH;
+      case 'D':
+        return name[1] == 'L' ? reg.DL : reg.DH;
+      case 'B':
+        return name[1] == 'L' ? reg.BL : reg.BH;
+    }
+    LOG(FATAL) << "FAIL";
+    return reg.AL;
+  }
+  uint16_t& get_register_w_by_name(const char* name) {
+    switch (name[1]) {
+      case 'A':
+        return reg.AX;
+      case 'C':
+        return reg.CX;
+      case 'D':
+        return name[2] == 'X' ? reg.DX : reg.DI;
+      case 'B':
+        return name[2] == 'X' ? reg.BX : reg.BP;
+      case 'S':
+        return name[2] == 'I' ? reg.SI : reg.SP;
+    }
+    LOG(FATAL) << "FAIL";
     return reg.AX;
   }
 private:
