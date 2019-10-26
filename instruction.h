@@ -12,3 +12,12 @@ union Instruction{
   };
   uint16_t value;
 };
+
+union ModRM {
+  struct {
+    uint8_t RM : 3;
+    uint8_t REG : 3;
+    uint8_t MOD : 2;
+  };
+  uint8_t value;
+};

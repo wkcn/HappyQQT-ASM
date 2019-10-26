@@ -4,7 +4,7 @@
 
 class Memory {
 public:
-  template <typename T>
+  template <typename T=uint8_t>
   T& get(uint16_t ptr) {
     uint8_t* p = &memory[ptr];
     return *reinterpret_cast<T*>(p);
