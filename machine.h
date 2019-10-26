@@ -425,10 +425,23 @@ private:
     const uint16_t FileOffset = 0x7f79; 
     uint16_t str_p = mem.get<uint16_t>(reg.CS, FileNameP);
     char* s = reinterpret_cast<char*>(&mem.get<uint16_t>(reg.CS, str_p));
-    for (int i = 0; i < 11; ++i) {
-      cout << s[i];
+    uint16_t seg = mem.get<uint16_t>(reg.CS, FileSegment);
+    uint16_t offset = mem.get<uint16_t>(reg.CS, FileOffset);
+    string filename;
+    for (int i = 0; i < 8; ++i) {
+      char c = s[i];
+      if (c != ' ') filename += c - 'A' + 'a';
     }
-    cout << endl;
+    filename += ".res";
+    cout << "Read " << filename << endl;
+    filename = "./game/build/" + filename;
+    ifstream fin(filename, ifstream::binary);
+    CHECK(fin);
+    fin.seekg(0, fin.end);
+    int length = fin.tellg();
+    fin.seekg(0, fin.beg);
+    char* ptr = reinterpret_cast<char*>(&mem.get(seg, offset));
+    fin.read(ptr, length);
     RET();
   }
 private:
