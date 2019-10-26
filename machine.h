@@ -55,13 +55,16 @@ public:
   }
   void run() {
     while (1) {
-      uint32_t addr = (reg.CS << 4) + reg.IP;
+      uint32_t addr = get_addr(reg.CS, reg.IP);
       uint8_t *p = &(mem.get(addr));
       cout << hex2str(addr) << " OP:" << hex2str(*p) << endl;
       reg.IP = (reg.IP + 1) % 0xFFFF;
       switch (*p) {
         case 0x24:
           AND(p+1, "AL", "Ib"); 
+          break;
+        case 0x2E:
+          CS_PRE(p+1);
           break;
         case 0x88:
           MOVb(p+1, "Eb", "Gb");
@@ -134,7 +137,7 @@ public:
 private:
   void read_deasm(const string& line) {
     // address | opcode | note
-    uint32_t addr = (reg.CS << 4) + reg.IP;
+    uint32_t addr = get_addr(reg.CS, reg.IP);
     int i;
     for (i = 0; i < 8; ++i) {
       const char c = line[i];
@@ -175,6 +178,10 @@ private:
     UpdateFlag(lv);
     reg.IP += 1;
   }
+  void CS_PRE(uint8_t *p) {
+    uint16_t &seg = reg.CS;
+    _POST(p, seg);
+  }
   void INT(uint8_t *p) {
     cout << "NotImplemented: INT 0x" << hex2str(*p) << endl;
     reg.IP += 1;
@@ -183,6 +190,8 @@ private:
     if (reg.CX != 0) {
       --reg.CX;
       reg.IP -= 0xFF - (*p); 
+    } else {
+      reg.IP += 1;
     }
   }
   void MOVib(uint8_t *p, const char* mc1, const char* mc2) {
@@ -232,6 +241,28 @@ private:
     lv >>= rv;
     UpdateFlag(lv);
     reg.IP += 2;
+  }
+private:
+  void _POST(uint8_t *p, uint16_t& seg) {
+    switch(*p) {
+      case 0xC7:
+        // Eb, Ib
+        _POST_MOVw(p+1, seg); 
+        break;
+      default:
+        LOG(FATAL) << "FAIL";
+    }
+  }
+  void _POST_MOVw(uint8_t *p, uint16_t& seg) {
+    if (*p == 0x06) {
+      uint16_t& offset = *reinterpret_cast<uint16_t*>(p+1);
+      uint16_t& value = *reinterpret_cast<uint16_t*>(p+3);
+      uint32_t addr = get_addr(seg, offset);
+      mem.get<uint16_t>(addr) = value;
+      reg.IP += 6;
+    } else {
+      LOG(FATAL) << "FAIL";
+    }
   }
 private:
   template <typename T>
@@ -356,6 +387,9 @@ private:
     }
     LOG(FATAL) << "FAIL";
     return reg.AX;
+  }
+  inline uint32_t get_addr(uint16_t seg, uint16_t offset) {
+    return (uint32_t(seg) << 4) + uint32_t(offset);
   }
 private:
   Registers reg;
