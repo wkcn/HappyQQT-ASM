@@ -44,6 +44,7 @@ public:
     reg.FR = 512;
   }
   void load(const string& filename) {
+    reg.IP = 0x7e00;
     ifstream fin(filename);
     string line;
     getline(fin, line);
@@ -54,10 +55,14 @@ public:
   }
   void run() {
     while (1) {
-      uint16_t addr = (reg.CS << 4) + reg.IP;
+      uint32_t addr = (reg.CS << 4) + reg.IP;
       uint8_t *p = &(mem.get(addr));
       cout << hex2str(addr) << " OP:" << hex2str(*p) << endl;
+      reg.IP = (reg.IP + 1) % 0xFFFF;
       switch (*p) {
+        case 0x24:
+          AND(p+1, "AL", "Ib"); 
+          break;
         case 0x88:
           MOVb(p+1, "Eb", "Gb");
           break;
@@ -107,10 +112,16 @@ public:
           MOViw(p+1, "eSP", "Iv");
           break;
         case 0xC0:
-          SHRib(p+1, "Eb", "Ib");
+          SHRib(p+1);
+          break;
+        case 0xD0:
+          SHL1b(p+1);
           break;
         case 0xCD:
           INT(p+1);
+          break;
+        case 0xE2:
+          LOOP(p+1);
           break;
         case 0xEE:
           OUT("DX", "AL");
@@ -123,18 +134,18 @@ public:
 private:
   void read_deasm(const string& line) {
     // address | opcode | note
-    uint32_t address = 0;
+    uint32_t addr = (reg.CS << 4) + reg.IP;
     int i;
     for (i = 0; i < 8; ++i) {
       const char c = line[i];
       if (c == ' ') return;
-      address += hex2dec(c) * (1 << ((7 - i) * 4));
+      addr += hex2dec(c) * (1 << ((7 - i) * 4));
     }
     while (line[i] == ' ') ++i;
     while (line[i] != ' ') {
       uint8_t high = hex2dec(line[i++]);
       uint8_t low = hex2dec(line[i++]);
-      mem.get<uint8_t>(address++) = (high << 4) + low;
+      mem.get<uint8_t>(addr++) = (high << 4) + low;
     }
   }
   uint8_t hex2dec(char c) {
@@ -157,25 +168,34 @@ private:
     return res;
   }
 private:
+  void AND(uint8_t *p, const char* mc1, const char* mc2) {
+    uint8_t& rv = *reinterpret_cast<uint8_t*>(p + 1);
+    uint8_t& lv = get_register_b_by_name(mc1);
+    lv &= rv;
+    UpdateFlag(lv);
+    reg.IP += 1;
+  }
   void INT(uint8_t *p) {
     cout << "NotImplemented: INT 0x" << hex2str(*p) << endl;
-    reg.IP += 2;
-  }
-  void OUT(const char *a, const char *b) {
-    cout << "NotImplemented: OUT: " << a << ", " << b << endl;
     reg.IP += 1;
+  }
+  void LOOP(uint8_t *p) {
+    if (reg.CX != 0) {
+      --reg.CX;
+      reg.IP -= 0xFF - (*p); 
+    }
   }
   void MOVib(uint8_t *p, const char* mc1, const char* mc2) {
     uint8_t& rv = *reinterpret_cast<uint8_t*>(p + 1);
     uint8_t& lv = get_register_b_by_name(mc1);
     lv = rv;
-    reg.IP += 2;
+    reg.IP += 1;
   }
   void MOViw(uint8_t *p, const char* mc1, const char* mc2) {
     uint16_t& rv = *reinterpret_cast<uint16_t*>(p + 1);
     uint16_t& lv = get_register_w_by_name(mc1);
     lv = rv;
-    reg.IP += 3;
+    reg.IP += 2;
   }
   void MOVb(uint8_t *p, const char* mc1, const char* mc2) {
     const ModRM& modrm = *reinterpret_cast<ModRM*>(p);
@@ -184,23 +204,39 @@ private:
     uint8_t& rv = get_register_b(modrm.REG);
     uint8_t& lv = get_register_b(modrm.RM);
     lv = rv;
-    reg.IP += 2;
+    reg.IP += 1;
   }
   void MOVw(uint8_t *p, const char* mc1, const char* mc2) {
     const ModRM& modrm = *reinterpret_cast<ModRM*>(p);
     uint16_t& rv = get_register_w(modrm.REG, mc2[0]);
     uint16_t& lv = get_modrm_w(modrm.MOD, modrm.RM);
     lv = rv;
-    reg.IP += 2;
+    reg.IP += 1;
   }
-  void SHRib(uint8_t *p, const char* mc1, const char* mc2) {
-    CHECK_EQ((*p) & 0xF8, 0xE8);
-    CHECK(mc1[0] == 'E');
-    CHECK(mc2[0] == 'I');
-    uint8_t& lv = get_register_b((*p)&0x7);
+  void OUT(const char *a, const char *b) {
+    cout << "NotImplemented: OUT: " << a << ", " << b << endl;
+  }
+  void SHL1b(uint8_t *p) {
+    const ModRM& modrm = *reinterpret_cast<ModRM*>(p);
+    CHECK(modrm.MOD == 0b11);
+    uint8_t& lv = get_register_b(modrm.RM);
+    lv <<= 1;
+    UpdateFlag(lv);
+    reg.IP += 1;
+  }
+  void SHRib(uint8_t *p) {
+    const ModRM& modrm = *reinterpret_cast<ModRM*>(p);
+    CHECK(modrm.MOD == 0b11);
+    uint8_t& lv = get_register_b(modrm.RM);
     uint8_t& rv = *reinterpret_cast<uint8_t*>(p + 1);
     lv >>= rv;
-    reg.IP += 3;
+    UpdateFlag(lv);
+    reg.IP += 2;
+  }
+private:
+  template <typename T>
+  void UpdateFlag(const T& v) {
+    if (v == 0) reg.set_flag(ZF);
   }
 private:
   uint8_t& get_register_b(const uint8_t REG) {
