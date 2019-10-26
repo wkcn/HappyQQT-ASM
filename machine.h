@@ -56,9 +56,9 @@ public:
     }
   }
   void inject_qqt() {
-    uint16_t base_addr = 0x7E00;
-    mem.get(base_addr + 0x17D) = 0xD8;
-    inject_functions[base_addr + 0x17D] = std::bind(&Machine::ReadFloppy, this);
+    uint16_t base_addr = 0x7e00;
+    mem.get(base_addr + 0x17d) = 0xd8;
+    inject_functions[base_addr + 0x17d] = std::bind(&Machine::ReadFloppy, this);
   }
   void run() {
     while (1) {
@@ -420,6 +420,15 @@ private:
 private:
   void ReadFloppy() {
     cout << "Read Floppy..." << endl;
+    const uint16_t FileNameP = 0x7f77;   
+    const uint16_t FileSegment = 0x7f7b;   
+    const uint16_t FileOffset = 0x7f79; 
+    uint16_t str_p = mem.get<uint16_t>(reg.CS, FileNameP);
+    char* s = reinterpret_cast<char*>(&mem.get<uint16_t>(reg.CS, str_p));
+    for (int i = 0; i < 11; ++i) {
+      cout << s[i];
+    }
+    cout << endl;
     RET();
   }
 private:
