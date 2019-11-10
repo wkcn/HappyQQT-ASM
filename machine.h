@@ -69,6 +69,15 @@ public:
         case 0x24:
           ANDALIb(p+1);
           break;
+        case 0x26:
+          pre_seg = &reg.ES;
+          break;
+        case 0x2E:
+          pre_seg = &reg.CS;
+          break;
+        case 0x3E:
+          pre_seg = &reg.DS;
+          break;
         case 0x88:
           MOVEbGb(p+1);
           break;
@@ -127,10 +136,25 @@ public:
           MOVeIv(p+1, reg.DI);
           break;
         case 0xc0:
-          SHREbIb(p+1);
+          SHEbIb(p+1);
+          break;
+        case 0xc7:
+          MOVEvIv(p+1);
           break;
         case 0xcd:
           INT(p+1);
+          break;
+        case 0xD8:
+          CallInjectFunc();
+          break;
+        case 0xd0:
+          SHEb1(p+1);
+          break;
+        case 0xe2:
+          LOOP(p+1);
+          break;
+        case 0xE8:
+          CALL(p+1);
           break;
         case 0xee:
           OUT();
@@ -146,14 +170,27 @@ private:
     // Acc, Imm
     uint8_t& lv = reg.AL;
     uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
-    cout << int(rv) << endl;
     lv &= rv;
     UpdateFlag(lv);
     reg.IP += 1;
   }
+  void CALL(uint8_t *p) {
+    reg.SP -= 2;
+    reg.IP += 2;
+    mem.get<uint16_t>(reg.SS, reg.SP) = reg.IP;
+    reg.IP += *reinterpret_cast<uint16_t*>(p);
+  }
   void INT(uint8_t *p) {
     cout << "NotImplemented: INT 0x" << hex2str(*p) << endl;
     reg.IP += 1;
+  }
+  void LOOP(uint8_t *p) {
+    if (reg.CX != 0) {
+      --reg.CX;
+      reg.IP -= 0xFF - (*p); 
+    } else {
+      reg.IP += 1;
+    }
   }
   void MOVEbGb(uint8_t *p) {
     // Reg8, Reg8
@@ -188,6 +225,20 @@ private:
     lv = rv;
     reg.IP += 2;
   }
+  void MOVEvIv(uint8_t *p) {
+    // Mem, Imm
+    ModRM& modrm = read_oosssmmm(p);
+    CHECK(modrm.MOD == 0b00);
+    CHECK(modrm.REG == 0b000);
+    CHECK(modrm.RM == 0b110);
+    CHECK(pre_seg);
+    uint16_t& offset = *reinterpret_cast<uint16_t*>(p+1);
+    uint16_t& value = *reinterpret_cast<uint16_t*>(p+3);
+    uint32_t addr = get_addr(*pre_seg, offset);
+    pre_seg = nullptr;
+    mem.get<uint16_t>(addr) = value;
+    reg.IP += 5;
+  }
   void MOVReg16Ib(uint8_t *p, uint8_t &lv) {
     uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
     lv = rv;
@@ -200,13 +251,31 @@ private:
     reg.IP = mem.get<uint16_t>(reg.SS, reg.SP);
     reg.SP += 2;
   }
-  void SHREbIb(uint8_t *p) {
+  void SHEb1(uint8_t *p) {
     ModRM& modrm = read_oosssmmm(p);
     CHECK(modrm.MOD == 0b11);
-    CHECK(modrm.REG == 0b101);
+    CHECK(modrm.REG == 0b100);
     uint8_t &lv = GetReg8(modrm.RM);
-    uint8_t& rv = *reinterpret_cast<uint8_t*>(p + 1);
-    lv >>= rv;
+    if (modrm.REG == 0b101) {
+      lv >>= 1;
+    } else {
+      CHECK(modrm.REG == 0b100);
+      lv <<= 1;
+    }
+    UpdateFlag(lv);
+    reg.IP += 1;
+  }
+  void SHEbIb(uint8_t *p) {
+    ModRM& modrm = read_oosssmmm(p);
+    CHECK(modrm.MOD == 0b11);
+    uint8_t &lv = GetReg8(modrm.RM);
+    uint8_t &rv = *reinterpret_cast<uint8_t*>(p + 1);
+    if (modrm.REG == 0b101) {
+      lv >>= rv;
+    } else {
+      CHECK(modrm.REG == 0b100);
+      lv <<= rv;
+    }
     UpdateFlag(lv);
     reg.IP += 2;
   }
