@@ -71,8 +71,17 @@ public:
       uint8_t *p = &(mem.get(addr));
       cout << hex2str(addr - 0x7e00) << " OP:" << hex2str(*p) << endl;
       switch (*p) {
+        case 0x00:
+          ADDEbGb(p+1);
+          break;
         case 0x01:
           ADDEvGv(p+1);
+          break;
+        case 0x02:
+          ADDGbEb(p+1);
+          break;
+        case 0x03:
+          ADDGvEv(p+1);
           break;
         case 0x06:
           PUSHw(reg.ES);
@@ -97,6 +106,18 @@ public:
           break;
         case 0x24:
           ANDALIb(p+1);
+          break;
+        case 0x28:
+          SUBEbGb(p+1);
+          break;
+        case 0x29:
+          SUBEvGv(p+1);
+          break;
+        case 0x2a:
+          SUBGbEb(p+1);
+          break;
+        case 0x2b:
+          SUBGvEv(p+1);
           break;
         case 0x26:
           pre_seg = &reg.ES;
@@ -212,8 +233,14 @@ public:
         case 0x74:
           JZ(p+1);
           break;
+        case 0x75:
+          JNZ(p+1);
+          break;
         case 0x80:
           CMP(p+1);
+          break;
+        case 0x81:
+          ADDEvIv(p+1);
           break;
         case 0x88:
           MOVEbGb(p+1);
@@ -327,14 +354,29 @@ public:
     }
   }
 private:
+  void ADDEbGb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *eb += *gb;
+    // TODO Update Flag
+  }
   void ADDEvGv(uint8_t *p) {
-    ModRM& modrm = read_oosssmmm(p);
-    CHECK(modrm.MOD == 0b11);
-    uint16_t &rv = GetReg16(modrm.REG);
-    uint16_t &lv = GetReg16(modrm.RM);
-    lv += rv;
-    UpdateFlag(lv);
-    reg.IP += 1;
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *ev += *gv;
+    // TODO Update Flag
+  }
+  void ADDGbEb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *gb += *eb;
+    // TODO Update Flag
+  }
+  void ADDGvEv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *gv += *ev;
+    // TODO Update Flag
   }
   void ANDALIb(uint8_t *p) {
     // Acc, Imm
@@ -343,6 +385,17 @@ private:
     lv &= rv;
     UpdateFlag(lv);
     reg.IP += 1;
+  }
+  void ADDEvIv(uint8_t *p) {
+    // Mem, Imm
+    ModRM& modrm = read_oosssmmm(p);
+    CHECK(modrm.MOD == 0b11);
+    CHECK(modrm.REG == 0b000);
+    uint16_t &lv = GetReg16(modrm.RM);
+    uint16_t &rv = *reinterpret_cast<uint16_t*>(p+1);
+    lv += rv;
+    reg.IP += 3;
+    // TODO Update Flag
   }
   void CALL(uint8_t *p) {
     reg.SP -= 2;
@@ -388,10 +441,22 @@ private:
     cout << "NotImplemented: INT 0x" << hex2str(*p) << endl;
     reg.IP += 1;
   }
+  void _IPJump(uint8_t step) {
+    reg.IP += step;
+    if (step & (1 << 7)) {
+      reg.IP -= 0x100;
+    }
+  }
   void JZ(uint8_t *p) {
     if (reg.get_flag(Flag::ZF))
-      reg.IP += *reinterpret_cast<uint16_t*>(p);
+      _IPJump(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
+  }
+  void JNZ(uint8_t *p) {
+    if (!reg.get_flag(Flag::ZF))
+      _IPJump(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+    cout << hex2str(reg.IP) << endl;
   }
   void LOOP(uint8_t *p) {
     if (reg.CX != 0) {
@@ -414,8 +479,8 @@ private:
       if (modrm.MOD == 0b00) {
         CHECK(modrm.MOD == 0b00);
         if (modrm.RM == 0b110) {
-          CHECK(modrm.REG == 0b001);
           uT& offset = *reinterpret_cast<uT*>(p+1);
+          CHECK(pre_seg);
           uint32_t addr = get_addr(*pre_seg, offset);
           pre_seg = nullptr;
           ev = &mem.get<uT>(addr);
@@ -609,6 +674,30 @@ private:
   }
   void STI() {
     cout << "NotImplemented: STI" << endl; 
+  }
+  void SUBEbGb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *eb -= *gb;
+    // TODO Update Flag
+  }
+  void SUBEvGv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *ev -= *gv;
+    // TODO Update Flag
+  }
+  void SUBGbEb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *gb -= *eb;
+    // TODO Update Flag
+  }
+  void SUBGvEv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *gv -= *ev;
+    // TODO Update Flag
   }
 private:
   inline ModRM& read_oosssmmm(uint8_t *p) {
