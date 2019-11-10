@@ -46,4 +46,12 @@ struct Registers {
     uint16_t w = ~(1 << uint16_t(g));
     FR &= w;
   }
+  void set_flag(Flag g, bool b) {
+    if (b) set_flag(g);
+    else unset_flag(g);
+  }
+  bool get_flag(Flag g) {
+    uint16_t w = 1 << uint16_t(g);
+    return FR & w;
+  }
 };

@@ -15,6 +15,11 @@ using namespace std;
 #include "memory.h"
 
 template <typename T>
+struct DummyIdentity {
+  typedef T type;
+};
+
+template <typename T>
 void PrintBits(T value, int n) {
   T t = T(1) << (n - 1);
   while (t > 0) {
@@ -102,6 +107,54 @@ public:
         case 0x3E:
           pre_seg = &reg.DS;
           break;
+        case 0x40:
+          INC(reg.AX);
+          break;
+        case 0x41:
+          INC(reg.CX);
+          break;
+        case 0x42:
+          INC(reg.DX);
+          break;
+        case 0x43:
+          INC(reg.BX);
+          break;
+        case 0x44:
+          INC(reg.SP);
+          break;
+        case 0x45:
+          INC(reg.BP);
+          break;
+        case 0x46:
+          INC(reg.SI);
+          break;
+        case 0x47:
+          INC(reg.DI);
+          break;
+        case 0x48:
+          DEC(reg.AX);
+          break;
+        case 0x49:
+          DEC(reg.CX);
+          break;
+        case 0x4a:
+          DEC(reg.DX);
+          break;
+        case 0x4b:
+          DEC(reg.BX);
+          break;
+        case 0x4c:
+          DEC(reg.SP);
+          break;
+        case 0x4d:
+          DEC(reg.BP);
+          break;
+        case 0x4e:
+          DEC(reg.SI);
+          break;
+        case 0x4f:
+          DEC(reg.DI);
+          break;
         case 0x50:
           PUSHw(reg.AX);
           break;
@@ -156,17 +209,32 @@ public:
         case 0x61:
           POPA();
           break;
+        case 0x74:
+          JZ(p+1);
+          break;
+        case 0x80:
+          CMP(p+1);
+          break;
         case 0x88:
           MOVEbGb(p+1);
           break;
         case 0x89:
           MOVEvGv(p+1);
           break;
+        case 0x8a:
+          MOVGbEb(p+1);
+          break;
+        case 0x8b:
+          MOVGvEv(p+1);
+          break;
         case 0x8c:
           MOVEwSw(p+1);
           break;
         case 0x8e:
           MOVSwEw(p+1);
+          break;
+        case 0xa1:
+          MOVeAXOv(p+1);
           break;
         case 0xb0:
           MOVReg16Ib(p+1, reg.AL);
@@ -228,7 +296,7 @@ public:
         case 0xcd:
           INT(p+1);
           break;
-        case 0xD8:
+        case 0xd8:
           CallInjectFunc();
           break;
         case 0xd0:
@@ -282,8 +350,47 @@ private:
     mem.get<uint16_t>(reg.SS, reg.SP) = reg.IP;
     reg.IP += *reinterpret_cast<uint16_t*>(p);
   }
+  template<typename T, typename uT>
+  uT _SUB(uT dest, uT source) {
+    uT res = dest - source;
+    reg.set_flag(Flag::ZF, res == 0);
+    reg.set_flag(Flag::CF, dest < source);
+    bool pos_res = static_cast<T>(res) >= 0;
+    bool pos_dest = static_cast<T>(dest) >= 0;
+    bool pos_source = static_cast<T>(source) >= 0;
+    bool overflow = res != 0 && (pos_dest == pos_source) && pos_res != pos_dest;
+    reg.set_flag(Flag::OF, overflow);
+    reg.set_flag(Flag::SF, !pos_res);
+    return res;
+  }
+  inline uint8_t _SUB8(uint8_t dest, uint8_t source) {
+    return _SUB<int8_t, uint8_t>(dest, source);
+  }
+  void CMP(uint8_t *p) {
+    ModRM& modrm = read_oosssmmm(p);
+    CHECK(modrm.MOD == 0b11);
+    CHECK(modrm.REG == 0b111);
+    // Reg, Imm
+    uint8_t &lv = GetReg8(modrm.RM);
+    uint8_t &rv = *reinterpret_cast<uint8_t*>(p+1);
+    _SUB8(lv, rv);
+    reg.IP += 2;
+  }
+  void DEC(uint16_t &lv) {
+    --lv;
+    // TODO Update Flag
+  }
+  void INC(uint16_t &lv) {
+    ++lv;
+    // TODO Update Flag
+  }
   void INT(uint8_t *p) {
     cout << "NotImplemented: INT 0x" << hex2str(*p) << endl;
+    reg.IP += 1;
+  }
+  void JZ(uint8_t *p) {
+    if (reg.get_flag(Flag::ZF))
+      reg.IP += *reinterpret_cast<uint16_t*>(p);
     reg.IP += 1;
   }
   void LOOP(uint8_t *p) {
@@ -294,22 +401,13 @@ private:
       reg.IP += 1;
     }
   }
-  void MOVEbGb(uint8_t *p) {
-    // Reg8, Reg8
+  template <typename uT>
+  void _GetEvGv(uint8_t *p, uT *&ev, uT *&gv) {
     ModRM& modrm = read_oosssmmm(p);
-    CHECK(modrm.MOD == 0b11);
-    uint8_t &rv = GetReg8(modrm.REG);
-    uint8_t &lv = GetReg8(modrm.RM);
-    lv = rv;
-    reg.IP += 1;
-  }
-  void MOVEvGv(uint8_t *p) {
-    ModRM& modrm = read_oosssmmm(p);
-    uint16_t &rv = GetReg16(modrm.REG);
+    gv = &GetReg<uT>(modrm.REG);
     if (modrm.MOD == 0b11) {
-      uint16_t &lv = GetReg16(modrm.RM);
+      ev = &GetReg<uT>(modrm.RM);
       // Reg, Reg
-      lv = rv;
       reg.IP += 1;
     } else { 
       // Mem, Reg
@@ -317,18 +415,26 @@ private:
         CHECK(modrm.MOD == 0b00);
         if (modrm.RM == 0b110) {
           CHECK(modrm.REG == 0b001);
-          uint16_t& offset = *reinterpret_cast<uint16_t*>(p+1);
+          uT& offset = *reinterpret_cast<uT*>(p+1);
           uint32_t addr = get_addr(*pre_seg, offset);
           pre_seg = nullptr;
-          mem.get<uint16_t>(addr) = rv;
+          ev = &mem.get<uT>(addr);
           reg.IP += 3;
         } else {
-          CHECK(modrm.RM == 0b100); // DS:[SI]
-          // 0134
-          if (!pre_seg) pre_seg = &reg.DS;
-          uint32_t addr = get_addr(*pre_seg, reg.SI);
+          uint32_t addr;
+          if (modrm.RM == 0b100) {
+            // DS: [SI]
+            // 0134
+            if (!pre_seg) pre_seg = &reg.DS;
+            addr = get_addr(*pre_seg, reg.SI);
+          } else {
+            CHECK(modrm.RM == 0b101);
+            if (!pre_seg) pre_seg = &reg.DS;
+            addr = get_addr(*pre_seg, reg.DI);
+            // DS: [DI]
+          }
           pre_seg = nullptr;
-          mem.get<uint16_t>(addr) = rv;
+          ev = &mem.get<uT>(addr);
           reg.IP += 1;
         }
       } else {
@@ -338,10 +444,30 @@ private:
         if (!pre_seg) pre_seg = &reg.DS;
         uint32_t addr = get_addr(*pre_seg, reg.SI + offset);
         pre_seg = nullptr;
-        mem.get<uint16_t>(addr) = rv;
+        ev = &mem.get<uT>(addr);
         reg.IP += 2;
       }
     }
+  }
+  void MOVEbGb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *eb = *gb;
+  }
+  void MOVEvGv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *ev = *gv;
+  }
+  void MOVGbEb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *gb = *eb;
+  }
+  void MOVGvEv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *gv = *ev;
   }
   void MOVEwSw(uint8_t *p) {
     // 10001100oosssmmm
@@ -361,6 +487,17 @@ private:
     uint16_t &rv = GetReg16(modrm.RM);
     lv = rv;
     reg.IP += 1;
+  }
+  void MOVeAXOv(uint8_t *p) {
+    // Acc, MemOfs
+    uint16_t& offset = *reinterpret_cast<uint16_t*>(p);
+    CHECK(pre_seg);
+    uint32_t addr = get_addr(*pre_seg, offset);
+    uint16_t &rv = mem.get<uint16_t>(addr);
+    uint16_t &lv = reg.AX;
+    pre_seg = nullptr;
+    lv = rv;
+    reg.IP += 2;
   }
   void MOVeIv(uint8_t *p, uint16_t &lv) {
     uint16_t& rv = *reinterpret_cast<uint16_t*>(p);
@@ -537,6 +674,16 @@ private:
     }
     LOG(FATAL) << "Unknown Register";
     return reg.AX;
+  }
+  template <typename T> inline T& _GetReg(const uint8_t, DummyIdentity<T>);
+  inline uint8_t& _GetReg(const uint8_t REG, DummyIdentity<uint8_t>) {
+    return GetReg8(REG);
+  }
+  inline uint16_t& _GetReg(const uint8_t REG, DummyIdentity<uint16_t>) {
+    return GetReg16(REG);
+  }
+  template <typename T> inline T& GetReg(const uint8_t REG) {
+    return _GetReg(REG, DummyIdentity<T>());
   }
 private:
   void read_deasm(const string& line) {

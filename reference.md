@@ -26,3 +26,9 @@ call:
 https://blog.csdn.net/ddupd/article/details/32348993
 
 https://blog.csdn.net/aap159951/article/details/48706207
+
+cmp:
+https://blog.csdn.net/feixiang3839/article/details/82666090
+
+pusha:
+https://blog.csdn.net/dgq227/article/details/9734383
