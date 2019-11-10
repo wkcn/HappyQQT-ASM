@@ -64,136 +64,216 @@ public:
     while (1) {
       uint32_t addr = get_addr(reg.CS, reg.IP);
       uint8_t *p = &(mem.get(addr));
-      cout << hex2str(addr) << " OP:" << hex2str(*p) << endl;
+      cout << hex2str(addr - 0x7e00) << " OP:" << hex2str(*p) << endl;
       switch (*p) {
         case 0x24:
-          AND(p+1, "AL", "Ib"); 
-          break;
-        case 0x2E:
-          CS_PRE(p+1);
-          break;
-        case 0x50:
-          PUSHw("eAX");
-          break;
-        case 0x51:
-          PUSHw("eCX");
-          break;
-        case 0x52:
-          PUSHw("eDX");
-          break;
-        case 0x53:
-          PUSHw("eBX");
-          break;
-        case 0x54:
-          PUSHw("eSP");
-          break;
-        case 0x55:
-          PUSHw("eBP");
-          break;
-        case 0x56:
-          PUSHw("eSI");
-          break;
-        case 0x57:
-          PUSHw("eDI");
-          break;
-        case 0x58:
-          POPw("eAX");
-          break;
-        case 0x59:
-          POPw("eCX");
-          break;
-        case 0x5A:
-          POPw("eDX");
-          break;
-        case 0x5B:
-          POPw("eBX");
-          break;
-        case 0x5C:
-          POPw("eSP");
-          break;
-        case 0x5D:
-          POPw("eBP");
-          break;
-        case 0x5E:
-          POPw("eSI");
-          break;
-        case 0x5F:
-          POPw("eDI");
+          ANDALIb(p+1);
           break;
         case 0x88:
-          MOVb(p+1, "Eb", "Gb");
+          MOVEbGb(p+1);
           break;
-        case 0x8C:
-          MOVw(p+1, "Ew", "Sw");
+        case 0x8c:
+          MOVEwSw(p+1);
           break;
-        case 0x8E:
-          MOVw(p+1, "Sw", "Ew");
+        case 0x8e:
+          MOVSwEw(p+1);
           break;
-        case 0xB0:
-          MOVib(p+1, "AL", "Ib");
+        case 0xb0:
+          MOVReg16Ib(p+1, reg.AL);
           break;
-        case 0xB1:
-          MOVib(p+1, "CL", "Ib");
+        case 0xb1:
+          MOVReg16Ib(p+1, reg.CL);
           break;
-        case 0xB2:
-          MOVib(p+1, "DL", "Ib");
+        case 0xb2:
+          MOVReg16Ib(p+1, reg.DL);
           break;
-        case 0xB3:
-          MOVib(p+1, "BL", "Ib");
+        case 0xb3:
+          MOVReg16Ib(p+1, reg.BL);
           break;
-        case 0xB4:
-          MOVib(p+1, "AH", "Ib");
+        case 0xb4:
+          MOVReg16Ib(p+1, reg.AH);
           break;
-        case 0xB5:
-          MOVib(p+1, "CH", "Ib");
+        case 0xb5:
+          MOVReg16Ib(p+1, reg.CH);
           break;
-        case 0xB6:
-          MOVib(p+1, "DH", "Ib");
+        case 0xb6:
+          MOVReg16Ib(p+1, reg.DH);
           break;
-        case 0xB7:
-          MOVib(p+1, "BH", "Ib");
+        case 0xb7:
+          MOVReg16Ib(p+1, reg.BH);
           break;
-        case 0xB8:
-          MOViw(p+1, "eAX", "Iv");
+        case 0xb8:
+          MOVeIv(p+1, reg.AX);
           break;
-        case 0xB9:
-          MOViw(p+1, "eCX", "Iv");
+        case 0xb9:
+          MOVeIv(p+1, reg.CX);
           break;
-        case 0xBA:
-          MOViw(p+1, "eDX", "Iv");
+        case 0xba:
+          MOVeIv(p+1, reg.DX);
           break;
-        case 0xBB:
-          MOViw(p+1, "eBX", "Iv");
+        case 0xbb:
+          MOVeIv(p+1, reg.BX);
           break;
-        case 0xBC:
-          MOViw(p+1, "eSP", "Iv");
+        case 0xbc:
+          MOVeIv(p+1, reg.SP);
           break;
-        case 0xC0:
-          SHRib(p+1);
+        case 0xbd:
+          MOVeIv(p+1, reg.BP);
           break;
-        case 0xD0:
-          SHL1b(p+1);
+        case 0xbe:
+          MOVeIv(p+1, reg.SI);
           break;
-        case 0xCD:
+        case 0xbf:
+          MOVeIv(p+1, reg.DI);
+          break;
+        case 0xc0:
+          SHREbIb(p+1);
+          break;
+        case 0xcd:
           INT(p+1);
           break;
-        case 0xD8:
-          CallInjectFunc();
-          break;
-        case 0xE2:
-          LOOP(p+1);
-          break;
-        case 0xE8:
-          CALL(p+1);
-          break;
-        case 0xEE:
-          OUT("DX", "AL");
+        case 0xee:
+          OUT();
           break;
         default:
           LOG(FATAL) << "Unknown OpCode: " << hex2str(*p);
       }
       reg.IP += 1;
     }
+  }
+private:
+  void ANDALIb(uint8_t *p) {
+    // Acc, Imm
+    uint8_t& lv = reg.AL;
+    uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
+    cout << int(rv) << endl;
+    lv &= rv;
+    UpdateFlag(lv);
+    reg.IP += 1;
+  }
+  void INT(uint8_t *p) {
+    cout << "NotImplemented: INT 0x" << hex2str(*p) << endl;
+    reg.IP += 1;
+  }
+  void MOVEbGb(uint8_t *p) {
+    // Reg8, Reg8
+    ModRM& modrm = read_oosssmmm(p);
+    CHECK(modrm.MOD == 0b11);
+    uint8_t &rv = GetReg8(modrm.REG);
+    uint8_t &lv = GetReg8(modrm.RM);
+    lv = rv;
+    reg.IP += 1;
+  }
+  void MOVEwSw(uint8_t *p) {
+    // 10001100oosssmmm
+    // Reg16, Seg 
+    ModRM& modrm = read_oosssmmm(p);
+    CHECK(modrm.MOD == 0b11);
+    uint16_t &rv = GetSeg16(modrm.REG);
+    uint16_t &lv = GetReg16(modrm.RM);
+    lv = rv;
+    reg.IP += 1;
+  }
+  void MOVSwEw(uint8_t *p) {
+    // Seg, Reg16
+    ModRM& modrm = read_oosssmmm(p);
+    CHECK(modrm.MOD == 0b11);
+    uint16_t &lv = GetSeg16(modrm.REG);
+    uint16_t &rv = GetReg16(modrm.RM);
+    lv = rv;
+    reg.IP += 1;
+  }
+  void MOVeIv(uint8_t *p, uint16_t &lv) {
+    uint16_t& rv = *reinterpret_cast<uint16_t*>(p);
+    lv = rv;
+    reg.IP += 2;
+  }
+  void MOVReg16Ib(uint8_t *p, uint8_t &lv) {
+    uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
+    lv = rv;
+    reg.IP += 1;
+  }
+  void OUT() {
+    cout << "NotImplemented: out dx, al" << endl; 
+  }
+  void RET() {
+    reg.IP = mem.get<uint16_t>(reg.SS, reg.SP);
+    reg.SP += 2;
+  }
+  void SHREbIb(uint8_t *p) {
+    ModRM& modrm = read_oosssmmm(p);
+    CHECK(modrm.MOD == 0b11);
+    CHECK(modrm.REG == 0b101);
+    uint8_t &lv = GetReg8(modrm.RM);
+    uint8_t& rv = *reinterpret_cast<uint8_t*>(p + 1);
+    lv >>= rv;
+    UpdateFlag(lv);
+    reg.IP += 2;
+  }
+private:
+  inline ModRM& read_oosssmmm(uint8_t *p) {
+    // MOD, REG, RM
+    // oo,  sss, mmm
+    return *reinterpret_cast<ModRM*>(p);
+  }
+private:
+  uint16_t& GetSeg16(const uint8_t REG) {
+    switch (REG) {
+      case 0:
+        return reg.ES;
+      case 1:
+        return reg.CS;
+      case 2:
+        return reg.SS;
+      case 3:
+        return reg.DS;
+    };
+    LOG(FATAL) << "Unknown Segment Register";
+    return reg.CS;
+  }
+  uint8_t& GetReg8(const uint8_t REG) {
+    switch (REG) {
+      case 0:
+        return reg.AL;
+      case 1:
+        return reg.CL;
+      case 2:
+        return reg.DL;
+      case 3:
+        return reg.BL;
+      case 4:
+        return reg.AH;
+      case 5:
+        return reg.CH;
+      case 6:
+        return reg.DH;
+      case 7:
+        return reg.BH;
+    }
+    LOG(INFO) << "Unknown Register";
+    return reg.AL;
+  }
+  uint16_t& GetReg16(const uint8_t RM) {
+    switch (RM) {
+      case 0:
+        return reg.AX;
+      case 1:
+        return reg.CX;
+      case 2:
+        return reg.DX;
+      case 3:
+        return reg.BX;
+      case 4:
+        return reg.SP;
+      case 5:
+        return reg.BP;
+      case 6:
+        return reg.SI;
+      case 7:
+        return reg.DI;
+    }
+    LOG(FATAL) << "Unknown Register";
+    return reg.AX;
   }
 private:
   void read_deasm(const string& line) {
@@ -232,242 +312,9 @@ private:
     return res;
   }
 private:
-  void AND(uint8_t *p, const char* mc1, const char* mc2) {
-    uint8_t& rv = *reinterpret_cast<uint8_t*>(p + 1);
-    uint8_t& lv = get_register_b_by_name(mc1);
-    lv &= rv;
-    UpdateFlag(lv);
-    reg.IP += 1;
-  }
-  void CALL(uint8_t *p) {
-    reg.SP -= 2;
-    reg.IP += 2;
-    mem.get<uint16_t>(reg.SS, reg.SP) = reg.IP;
-    reg.IP += *reinterpret_cast<uint16_t*>(p);
-  }
-  void CS_PRE(uint8_t *p) {
-    uint16_t &seg = reg.CS;
-    _POST(p, seg);
-  }
-  void INT(uint8_t *p) {
-    cout << "NotImplemented: INT 0x" << hex2str(*p) << endl;
-    reg.IP += 1;
-  }
-  void LOOP(uint8_t *p) {
-    if (reg.CX != 0) {
-      --reg.CX;
-      reg.IP -= 0xFF - (*p); 
-    } else {
-      reg.IP += 1;
-    }
-  }
-  void MOVib(uint8_t *p, const char* mc1, const char* mc2) {
-    uint8_t& rv = *reinterpret_cast<uint8_t*>(p + 1);
-    uint8_t& lv = get_register_b_by_name(mc1);
-    lv = rv;
-    reg.IP += 1;
-  }
-  void MOViw(uint8_t *p, const char* mc1, const char* mc2) {
-    uint16_t& rv = *reinterpret_cast<uint16_t*>(p + 1);
-    uint16_t& lv = get_register_w_by_name(mc1);
-    lv = rv;
-    reg.IP += 2;
-  }
-  void MOVb(uint8_t *p, const char* mc1, const char* mc2) {
-    const ModRM& modrm = *reinterpret_cast<ModRM*>(p);
-    CHECK(mc1[0] == 'E');
-    CHECK(mc2[0] == 'G');
-    uint8_t& rv = get_register_b(modrm.REG);
-    uint8_t& lv = get_register_b(modrm.RM);
-    lv = rv;
-    reg.IP += 1;
-  }
-  void MOVw(uint8_t *p, const char* mc1, const char* mc2) {
-    const ModRM& modrm = *reinterpret_cast<ModRM*>(p);
-    uint16_t& rv = get_register_w(modrm.REG, mc2[0]);
-    uint16_t& lv = get_modrm_w(modrm.MOD, modrm.RM);
-    lv = rv;
-    reg.IP += 1;
-  }
-  void OUT(const char *a, const char *b) {
-    cout << "NotImplemented: OUT: " << a << ", " << b << endl;
-  }
-  void POPw(const char* mc) {
-    uint16_t &r = get_register_w_by_name(mc);
-    r = mem.get<uint16_t>(reg.SS, reg.SP);
-    reg.SP += 2;
-  }
-  void PUSHw(const char* mc) {
-    uint16_t &r = get_register_w_by_name(mc);
-    reg.SP -= 2;
-    mem.get<uint16_t>(reg.SS, reg.SP) = r;
-  }
-  void RET() {
-    reg.IP = mem.get<uint16_t>(reg.SS, reg.SP);
-    reg.SS += 2;
-  }
-  void SHL1b(uint8_t *p) {
-    const ModRM& modrm = *reinterpret_cast<ModRM*>(p);
-    CHECK(modrm.MOD == 0b11);
-    uint8_t& lv = get_register_b(modrm.RM);
-    lv <<= 1;
-    UpdateFlag(lv);
-    reg.IP += 1;
-  }
-  void SHRib(uint8_t *p) {
-    const ModRM& modrm = *reinterpret_cast<ModRM*>(p);
-    CHECK(modrm.MOD == 0b11);
-    uint8_t& lv = get_register_b(modrm.RM);
-    uint8_t& rv = *reinterpret_cast<uint8_t*>(p + 1);
-    lv >>= rv;
-    UpdateFlag(lv);
-    reg.IP += 2;
-  }
-private:
-  void _POST(uint8_t *p, uint16_t& seg) {
-    switch(*p) {
-      case 0xC7:
-        // Eb, Ib
-        _POST_MOVw(p+1, seg); 
-        break;
-      default:
-        LOG(FATAL) << "FAIL";
-    }
-  }
-  void _POST_MOVw(uint8_t *p, uint16_t& seg) {
-    if (*p == 0x06) {
-      uint16_t& offset = *reinterpret_cast<uint16_t*>(p+1);
-      uint16_t& value = *reinterpret_cast<uint16_t*>(p+3);
-      uint32_t addr = get_addr(seg, offset);
-      mem.get<uint16_t>(addr) = value;
-      reg.IP += 6;
-    } else {
-      LOG(FATAL) << "FAIL";
-    }
-  }
-private:
   template <typename T>
   void UpdateFlag(const T& v) {
     if (v == 0) reg.set_flag(ZF);
-  }
-private:
-  uint8_t& get_register_b(const uint8_t REG) {
-    switch (REG) {
-      case 0:
-        return reg.AL;
-      case 1:
-        return reg.CL;
-      case 2:
-        return reg.DL;
-      case 3:
-        return reg.BL;
-      case 4:
-        return reg.AH;
-      case 5:
-        return reg.CH;
-      case 6:
-        return reg.DH;
-      case 7:
-        return reg.BH;
-    }
-    LOG(INFO) << "Unknown Register";
-    return reg.AL;
-  }
-  uint16_t& get_register_w(const uint8_t REG, const char c) {
-    switch (c) {
-      case 'S':
-        switch (REG) {
-          case 0:
-            return reg.DS;
-          case 1:
-            return reg.ES;
-          case 4:
-            return reg.SS;
-          case 5:
-            return reg.CS;
-          case 6:
-            return reg.IP;
-        }
-        break;
-      case 'E': 
-        switch (REG) {
-          case 0:
-            return reg.AX;
-          case 1:
-            return reg.CX;
-          case 2:
-            return reg.DX;
-          case 3:
-            return reg.BX;
-          case 4:
-            return reg.SP;
-          case 5:
-            return reg.BP;
-          case 6:
-            return reg.SI;
-          case 7:
-            return reg.DI;
-        }
-        break;
-    }
-    LOG(INFO) << "Unknown Register";
-    return reg.AX;
-  }
-  uint16_t& get_modrm_w(const uint8_t MOD, const uint8_t RM) {
-    switch (MOD) {
-      case 3:
-        switch (RM) {
-          case 0:
-            return reg.AX;
-          case 1:
-            return reg.CX;
-          case 2:
-            return reg.DX;
-          case 3:
-            return reg.BX;
-          case 4:
-            return reg.SP;
-          case 5:
-            return reg.BP;
-          case 6:
-            return reg.SI;
-          case 7:
-            return reg.DI;
-        }
-        break;
-    }
-    LOG(INFO) << "Unknown MoDRM";
-    return reg.AX;
-  }
-  uint8_t& get_register_b_by_name(const char* name) {
-    switch (name[0]) {
-      case 'A':
-        return name[1] == 'L' ? reg.AL : reg.AH;
-      case 'C':
-        return name[1] == 'L' ? reg.CL : reg.CH;
-      case 'D':
-        return name[1] == 'L' ? reg.DL : reg.DH;
-      case 'B':
-        return name[1] == 'L' ? reg.BL : reg.BH;
-    }
-    LOG(FATAL) << "FAIL";
-    return reg.AL;
-  }
-  uint16_t& get_register_w_by_name(const char* name) {
-    switch (name[1]) {
-      case 'A':
-        return reg.AX;
-      case 'C':
-        return reg.CX;
-      case 'D':
-        return name[2] == 'X' ? reg.DX : reg.DI;
-      case 'B':
-        return name[2] == 'X' ? reg.BX : reg.BP;
-      case 'S':
-        return name[2] == 'I' ? reg.SI : reg.SP;
-    }
-    LOG(FATAL) << "FAIL";
-    return reg.AX;
   }
 private:
   void CallInjectFunc() {
@@ -502,6 +349,8 @@ private:
     fin.read(ptr, length);
     RET();
   }
+private:
+  uint16_t *pre_seg = nullptr;
 private:
   Registers reg;
   Memory mem;
