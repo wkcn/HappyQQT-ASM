@@ -78,6 +78,54 @@ public:
         case 0x3E:
           pre_seg = &reg.DS;
           break;
+        case 0x50:
+          PUSHw(reg.AX);
+          break;
+        case 0x51:
+          PUSHw(reg.CX);
+          break;
+        case 0x52:
+          PUSHw(reg.DX);
+          break;
+        case 0x53:
+          PUSHw(reg.BX);
+          break;
+        case 0x54:
+          PUSHw(reg.SP);
+          break;
+        case 0x55:
+          PUSHw(reg.BP);
+          break;
+        case 0x56:
+          PUSHw(reg.SI);
+          break;
+        case 0x57:
+          PUSHw(reg.DI);
+          break;
+        case 0x58:
+          POPw(reg.AX);
+          break;
+        case 0x59:
+          POPw(reg.CX);
+          break;
+        case 0x5A:
+          POPw(reg.DX);
+          break;
+        case 0x5B:
+          POPw(reg.BX);
+          break;
+        case 0x5C:
+          POPw(reg.SP);
+          break;
+        case 0x5D:
+          POPw(reg.BP);
+          break;
+        case 0x5E:
+          POPw(reg.SI);
+          break;
+        case 0x5F:
+          POPw(reg.DI);
+          break;
         case 0x88:
           MOVEbGb(p+1);
           break;
@@ -246,6 +294,14 @@ private:
   }
   void OUT() {
     cout << "NotImplemented: out dx, al" << endl; 
+  }
+  void POPw(uint16_t &lv) {
+    lv = mem.get<uint16_t>(reg.SS, reg.SP);
+    reg.SP += 2;
+  }
+  void PUSHw(uint16_t &rv) {
+    reg.SP -= 2;
+    mem.get<uint16_t>(reg.SS, reg.SP) = rv;
   }
   void RET() {
     reg.IP = mem.get<uint16_t>(reg.SS, reg.SP);
