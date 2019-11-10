@@ -66,6 +66,30 @@ public:
       uint8_t *p = &(mem.get(addr));
       cout << hex2str(addr - 0x7e00) << " OP:" << hex2str(*p) << endl;
       switch (*p) {
+        case 0x01:
+          ADDEvGv(p+1);
+          break;
+        case 0x06:
+          PUSHw(reg.ES);
+          break;
+        case 0x07:
+          POPw(reg.ES);
+          break;
+        case 0x0e:
+          PUSHw(reg.CS);
+          break;
+        case 0x16:
+          PUSHw(reg.SS);
+          break;
+        case 0x17:
+          POPw(reg.SS);
+          break;
+        case 0x1e:
+          PUSHw(reg.DS);
+          break;
+        case 0x1f:
+          POPw(reg.DS);
+          break;
         case 0x24:
           ANDALIb(p+1);
           break;
@@ -126,8 +150,17 @@ public:
         case 0x5F:
           POPw(reg.DI);
           break;
+        case 0x60:
+          PUSHA();
+          break;
+        case 0x61:
+          POPA();
+          break;
         case 0x88:
           MOVEbGb(p+1);
+          break;
+        case 0x89:
+          MOVEvGv(p+1);
           break;
         case 0x8c:
           MOVEwSw(p+1);
@@ -186,6 +219,9 @@ public:
         case 0xc0:
           SHEbIb(p+1);
           break;
+        case 0xc3:
+          RET();
+          break;
         case 0xc7:
           MOVEvIv(p+1);
           break;
@@ -201,11 +237,20 @@ public:
         case 0xe2:
           LOOP(p+1);
           break;
-        case 0xE8:
+        case 0xe8:
           CALL(p+1);
           break;
+        case 0xe6:
+          OUTIbAL(p+1);
+          break;
         case 0xee:
-          OUT();
+          OUTDXAL();
+          break;
+        case 0xf7:
+          MULEv(p+1);
+          break;
+        case 0xfb:
+          STI();
           break;
         default:
           LOG(FATAL) << "Unknown OpCode: " << hex2str(*p);
@@ -214,6 +259,15 @@ public:
     }
   }
 private:
+  void ADDEvGv(uint8_t *p) {
+    ModRM& modrm = read_oosssmmm(p);
+    CHECK(modrm.MOD == 0b11);
+    uint16_t &rv = GetReg16(modrm.REG);
+    uint16_t &lv = GetReg16(modrm.RM);
+    lv += rv;
+    UpdateFlag(lv);
+    reg.IP += 1;
+  }
   void ANDALIb(uint8_t *p) {
     // Acc, Imm
     uint8_t& lv = reg.AL;
@@ -248,6 +302,46 @@ private:
     uint8_t &lv = GetReg8(modrm.RM);
     lv = rv;
     reg.IP += 1;
+  }
+  void MOVEvGv(uint8_t *p) {
+    ModRM& modrm = read_oosssmmm(p);
+    uint16_t &rv = GetReg16(modrm.REG);
+    if (modrm.MOD == 0b11) {
+      uint16_t &lv = GetReg16(modrm.RM);
+      // Reg, Reg
+      lv = rv;
+      reg.IP += 1;
+    } else { 
+      // Mem, Reg
+      if (modrm.MOD == 0b00) {
+        CHECK(modrm.MOD == 0b00);
+        if (modrm.RM == 0b110) {
+          CHECK(modrm.REG == 0b001);
+          uint16_t& offset = *reinterpret_cast<uint16_t*>(p+1);
+          uint32_t addr = get_addr(*pre_seg, offset);
+          pre_seg = nullptr;
+          mem.get<uint16_t>(addr) = rv;
+          reg.IP += 3;
+        } else {
+          CHECK(modrm.RM == 0b100); // DS:[SI]
+          // 0134
+          if (!pre_seg) pre_seg = &reg.DS;
+          uint32_t addr = get_addr(*pre_seg, reg.SI);
+          pre_seg = nullptr;
+          mem.get<uint16_t>(addr) = rv;
+          reg.IP += 1;
+        }
+      } else {
+        CHECK(modrm.MOD == 0b01);
+        CHECK(modrm.RM == 0b100); // DS:[SI]
+        uint8_t& offset = *reinterpret_cast<uint8_t*>(p+1);
+        if (!pre_seg) pre_seg = &reg.DS;
+        uint32_t addr = get_addr(*pre_seg, reg.SI + offset);
+        pre_seg = nullptr;
+        mem.get<uint16_t>(addr) = rv;
+        reg.IP += 2;
+      }
+    }
   }
   void MOVEwSw(uint8_t *p) {
     // 10001100oosssmmm
@@ -292,8 +386,26 @@ private:
     lv = rv;
     reg.IP += 1;
   }
-  void OUT() {
+  void MULEv(uint8_t *p) {
+    ModRM& modrm = read_oosssmmm(p);
+    CHECK(modrm.MOD == 0b11);
+    CHECK(modrm.REG == 0b100);
+    uint16_t &rv = GetReg16(modrm.RM);
+    uint32_t rv32 = (uint32_t)rv;
+    uint32_t lv32 = (uint32_t)reg.AX;
+    lv32 *= rv32;
+    reg.AX = lv32 & 0xFFFF;
+    reg.DX = (lv32 >> 16) & 0xFFFF;
+    // TODO UpdateFlag
+    reg.IP += 1;
+  }
+  void OUTDXAL() {
     cout << "NotImplemented: out dx, al" << endl; 
+  }
+  void OUTIbAL(uint8_t *p) {
+    uint8_t& lv = *reinterpret_cast<uint8_t*>(p);
+    cout << "NotImplemented: out Ib, al" << endl; 
+    reg.IP += 1;
   }
   void POPw(uint16_t &lv) {
     lv = mem.get<uint16_t>(reg.SS, reg.SP);
@@ -302,6 +414,29 @@ private:
   void PUSHw(uint16_t &rv) {
     reg.SP -= 2;
     mem.get<uint16_t>(reg.SS, reg.SP) = rv;
+  }
+  void PUSHA() {
+    uint16_t old_SP = reg.SP;
+    PUSHw(reg.AX);
+    PUSHw(reg.CX);
+    PUSHw(reg.DX);
+    PUSHw(reg.BX);
+    PUSHw(old_SP);
+    PUSHw(reg.BP);
+    PUSHw(reg.SI);
+    PUSHw(reg.DI);
+  }
+  void POPA() {
+    uint16_t old_SP;
+    POPw(reg.DI);
+    POPw(reg.SI);
+    POPw(reg.BP);
+    POPw(old_SP);
+    POPw(reg.BX);
+    POPw(reg.DX);
+    POPw(reg.CX);
+    POPw(reg.AX);
+    reg.SP = old_SP;
   }
   void RET() {
     reg.IP = mem.get<uint16_t>(reg.SS, reg.SP);
@@ -334,6 +469,9 @@ private:
     }
     UpdateFlag(lv);
     reg.IP += 2;
+  }
+  void STI() {
+    cout << "NotImplemented: STI" << endl; 
   }
 private:
   inline ModRM& read_oosssmmm(uint8_t *p) {
