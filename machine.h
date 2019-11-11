@@ -13,6 +13,7 @@ using namespace std;
 #include "register.h"
 #include "instruction.h"
 #include "memory.h"
+#include "gui.h"
 
 template <typename T>
 struct DummyIdentity {
@@ -69,7 +70,7 @@ public:
     while (1) {
       uint32_t addr = get_addr(reg.CS, reg.IP);
       uint8_t *p = &(mem.get(addr));
-      cout << hex2str(addr - 0x7e00) << " OP:" << hex2str(*p) << endl;
+      // cout << hex2str(addr - 0x7e00) << " OP:" << hex2str(*p) << endl;
       switch (*p) {
         case 0x00:
           ADDEbGb(p+1);
@@ -348,7 +349,7 @@ public:
           STI();
           break;
         default:
-          LOG(FATAL) << "Unknown OpCode: " << hex2str(*p);
+          LOG(FATAL) << "Unknown OpCode: [" << hex2str(addr - 0x7e00) << "]" << hex2str(*p);
       }
       reg.IP += 1;
     }
@@ -456,15 +457,12 @@ private:
     if (!reg.get_flag(Flag::ZF))
       _IPJump(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
-    cout << hex2str(reg.IP) << endl;
   }
   void LOOP(uint8_t *p) {
-    if (reg.CX != 0) {
-      --reg.CX;
-      reg.IP -= 0xFF - (*p); 
-    } else {
-      reg.IP += 1;
+    if (--reg.CX != 0) {
+      _IPJump(*p);
     }
+    reg.IP += 1;
   }
   template <typename uT>
   void _GetEvGv(uint8_t *p, uT *&ev, uT *&gv) {
@@ -602,11 +600,25 @@ private:
     reg.IP += 1;
   }
   void OUTDXAL() {
-    cout << "NotImplemented: out dx, al" << endl; 
+    switch (reg.DX) {
+      case 0x3c6:
+        // set palette mask
+        break;
+      case 0x3c8:
+        // set palette index
+        gui.set_palette_index(reg.AL);
+        break;
+      case 0x3c9:
+        // set palette value 
+        gui.set_palette_value(reg.AL);
+        break;
+      default:
+        cout << "NotImplemented: out dx, al - DX: " << hex2str(reg.DX) << " AL: " << hex2str(reg.AL) << endl; 
+    };
   }
   void OUTIbAL(uint8_t *p) {
-    uint8_t& lv = *reinterpret_cast<uint8_t*>(p);
-    cout << "NotImplemented: out Ib, al" << endl; 
+    uint8_t &lv = *reinterpret_cast<uint8_t*>(p);
+    cout << "NotImplemented: out Ib, al - Ib: " << hex2str(lv) << " AL: " << hex2str(reg.AL) << endl; 
     reg.IP += 1;
   }
   void POPw(uint16_t &lv) {
@@ -853,6 +865,7 @@ private:
 private:
   Registers reg;
   Memory mem;
+  GUI gui;
   const char hexch[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
   map<uint32_t, std::function<void()> > inject_functions;
 };

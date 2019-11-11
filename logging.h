@@ -38,7 +38,7 @@ class MobulaLogger {
 
 #define CHECK_BINARY_OP(op, x, y)           \
   if (!((x)op(y)))                          \
-  LOG(FATAL) << " Check Failed: " #x " " #op " " #y " "
+  LOG(FATAL) << " Check Failed: " #x " " #op " " #y " " << " " << x << " vs " << y
 
 #define CHECK_EQ(x, y) CHECK_BINARY_OP(==, x, y)
 #define CHECK_NE(x, y) CHECK_BINARY_OP(!=, x, y)
