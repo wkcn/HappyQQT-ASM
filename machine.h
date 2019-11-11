@@ -50,6 +50,7 @@ public:
   Machine() {
     memset(&reg, 0, sizeof(reg));
     reg.FR = 512;
+    gui.set_video_addr(&(mem.get(0xa000, 0)));
   }
   void load(const string& filename) {
     reg.IP = 0x7e00;
@@ -68,9 +69,35 @@ public:
   }
   void run() {
     while (1) {
+      if (rep_mode) {
+        if (--reg.CX == 0) {
+          rep_mode = false;
+        } else {
+          reg.IP = rep_IP; 
+        }
+      }
+      while (reg.IP == 0x7e00 + 0x31d) {
+        cout << "TEST" << endl;
+      }
       uint32_t addr = get_addr(reg.CS, reg.IP);
       uint8_t *p = &(mem.get(addr));
-      // cout << hex2str(addr - 0x7e00) << " OP:" << hex2str(*p) << endl;
+#if 0
+      cout << hex2str(addr - 0x7e00) << " OP:" << hex2str(*p) << endl <<
+        " AX:" << hex2str(reg.AX) <<
+        " BX:" << hex2str(reg.BX) <<
+        " CX:" << hex2str(reg.CX) <<
+        " DX:" << hex2str(reg.DX) <<
+        " SP:" << hex2str(reg.SP) <<
+        " BP:" << hex2str(reg.BP) <<
+        " SI:" << hex2str(reg.SI) <<
+        " DI:" << hex2str(reg.DI) <<
+        endl <<
+        " CS:" << hex2str(reg.CS) <<
+        " DS:" << hex2str(reg.DS) <<
+        " SS:" << hex2str(reg.SS) <<
+        " ES:" << hex2str(reg.ES) <<
+        endl;
+#endif
       switch (*p) {
         case 0x00:
           ADDEbGb(p+1);
@@ -264,6 +291,9 @@ public:
         case 0xa1:
           MOVeAXOv(p+1);
           break;
+        case 0xa5:
+          MOVSWXvYv(p+1);
+          break;
         case 0xb0:
           MOVReg16Ib(p+1, reg.AL);
           break;
@@ -342,6 +372,9 @@ public:
         case 0xee:
           OUTDXAL();
           break;
+        case 0xf3:
+          REP();
+          break;
         case 0xf7:
           MULEv(p+1);
           break;
@@ -358,26 +391,22 @@ private:
   void ADDEbGb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
-    *eb += *gb;
-    // TODO Update Flag
+    *eb = _ADD<int8_t, uint8_t>(*eb, *gb);
   }
   void ADDEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
-    *ev += *gv;
-    // TODO Update Flag
+    *ev = _ADD<int16_t, uint16_t>(*ev, *gv);
   }
   void ADDGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
-    *gb += *eb;
-    // TODO Update Flag
+    *gb = _ADD<int8_t, uint8_t>(*gb, *eb);
   }
   void ADDGvEv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
-    *gv += *ev;
-    // TODO Update Flag
+    *gv = _ADD<int16_t, uint16_t>(*gv, *ev);
   }
   void ANDALIb(uint8_t *p) {
     // Acc, Imm
@@ -394,28 +423,14 @@ private:
     CHECK(modrm.REG == 0b000);
     uint16_t &lv = GetReg16(modrm.RM);
     uint16_t &rv = *reinterpret_cast<uint16_t*>(p+1);
-    lv += rv;
+    lv = _ADD<int16_t, uint16_t>(lv, rv);
     reg.IP += 3;
-    // TODO Update Flag
   }
   void CALL(uint8_t *p) {
     reg.SP -= 2;
     reg.IP += 2;
     mem.get<uint16_t>(reg.SS, reg.SP) = reg.IP;
     reg.IP += *reinterpret_cast<uint16_t*>(p);
-  }
-  template<typename T, typename uT>
-  uT _SUB(uT dest, uT source) {
-    uT res = dest - source;
-    reg.set_flag(Flag::ZF, res == 0);
-    reg.set_flag(Flag::CF, dest < source);
-    bool pos_res = static_cast<T>(res) >= 0;
-    bool pos_dest = static_cast<T>(dest) >= 0;
-    bool pos_source = static_cast<T>(source) >= 0;
-    bool overflow = res != 0 && (pos_dest == pos_source) && pos_res != pos_dest;
-    reg.set_flag(Flag::OF, overflow);
-    reg.set_flag(Flag::SF, !pos_res);
-    return res;
   }
   inline uint8_t _SUB8(uint8_t dest, uint8_t source) {
     return _SUB<int8_t, uint8_t>(dest, source);
@@ -431,12 +446,10 @@ private:
     reg.IP += 2;
   }
   void DEC(uint16_t &lv) {
-    --lv;
-    // TODO Update Flag
+    lv = _SUB<int16_t, uint16_t>(lv, 1);
   }
   void INC(uint16_t &lv) {
-    ++lv;
-    // TODO Update Flag
+    lv = _ADD<int16_t, uint16_t>(lv, 1);
   }
   void INT(uint8_t *p) {
     cout << "NotImplemented: INT 0x" << hex2str(*p) << endl;
@@ -570,7 +583,7 @@ private:
   void MOVEvIv(uint8_t *p) {
     // Mem, Imm
     ModRM& modrm = read_oosssmmm(p);
-    CHECK(modrm.MOD == 0b00);
+    CHECK(modrm.MOD == 0b00) << hex2str(reg.IP);
     CHECK(modrm.REG == 0b000);
     CHECK(modrm.RM == 0b110);
     CHECK(pre_seg);
@@ -585,6 +598,17 @@ private:
     uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
     lv = rv;
     reg.IP += 1;
+  }
+  void MOVSWXvYv(uint8_t *p) {
+   // [ds:si] -> [es:di]
+   mem.get<uint16_t>(reg.ES, reg.DI) = mem.get<uint16_t>(reg.DS, reg.SI);
+   if (reg.get_flag(Flag::DF)) {
+     reg.DI -= 2;
+     reg.SI -= 2;
+   } else {
+     reg.DI += 2;
+     reg.SI += 2;
+   }
   }
   void MULEv(uint8_t *p) {
     ModRM& modrm = read_oosssmmm(p);
@@ -656,6 +680,10 @@ private:
     reg.IP = mem.get<uint16_t>(reg.SS, reg.SP);
     reg.SP += 2;
   }
+  void REP() {
+    rep_mode = true;
+    rep_IP = reg.IP + 1;
+  }
   void SHEb1(uint8_t *p) {
     ModRM& modrm = read_oosssmmm(p);
     CHECK(modrm.MOD == 0b11);
@@ -690,26 +718,48 @@ private:
   void SUBEbGb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
-    *eb -= *gb;
-    // TODO Update Flag
+    *eb = _SUB<int8_t, uint8_t>(*eb, *gb);
   }
   void SUBEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
-    *ev -= *gv;
-    // TODO Update Flag
+    *ev = _SUB<int16_t, uint16_t>(*ev, *gv);
   }
   void SUBGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
-    *gb -= *eb;
-    // TODO Update Flag
+    *gb = _SUB<int8_t, uint8_t>(*gb, *eb);
   }
   void SUBGvEv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
-    *gv -= *ev;
-    // TODO Update Flag
+    *gv = _SUB<int16_t, uint16_t>(*gv, *ev);
+  }
+private:
+  template<typename T, typename uT>
+  uT _ADD(uT dest, uT source) {
+    uT res = dest + source;
+    reg.set_flag(Flag::ZF, res == 0);
+    bool pos_res = static_cast<T>(res) >= 0;
+    bool pos_dest = static_cast<T>(dest) >= 0;
+    bool pos_source = static_cast<T>(source) >= 0;
+    bool overflow = res != 0 && (pos_dest == pos_source) && pos_res != pos_dest;
+    reg.set_flag(Flag::OF, overflow);
+    reg.set_flag(Flag::SF, !pos_res);
+    return res;
+  }
+  template<typename T, typename uT>
+  uT _SUB(uT dest, uT source) {
+    uT res = dest - source;
+    reg.set_flag(Flag::ZF, res == 0);
+    reg.set_flag(Flag::CF, dest < source);
+    bool pos_res = static_cast<T>(res) >= 0;
+    bool pos_dest = static_cast<T>(dest) >= 0;
+    bool pos_source = static_cast<T>(source) >= 0;
+    bool overflow = res != 0 && (pos_dest != pos_source) && pos_res != pos_dest;
+    reg.set_flag(Flag::OF, overflow);
+    reg.set_flag(Flag::SF, !pos_res);
+    return res;
   }
 private:
   inline ModRM& read_oosssmmm(uint8_t *p) {
@@ -862,6 +912,8 @@ private:
   }
 private:
   uint16_t *pre_seg = nullptr;
+  bool rep_mode = false;
+  uint16_t rep_IP; 
 private:
   Registers reg;
   Memory mem;

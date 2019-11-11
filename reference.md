@@ -32,3 +32,6 @@ https://blog.csdn.net/feixiang3839/article/details/82666090
 
 pusha:
 https://blog.csdn.net/dgq227/article/details/9734383
+
+osdev:
+https://wiki.osdev.org/VGA_Hardware#Port_0x3C6
