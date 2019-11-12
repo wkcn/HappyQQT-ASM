@@ -1,19 +1,31 @@
 #pragma once
+#include <chrono>
 #include <iostream>
 #include <functional>
 #include <fstream>
 #include <map>
+#include <queue>
 #include <string>
 #include <vector>
+#include <stack>
 #include <cstdio>
 #include <cstring>
-#include <stack>
+#include <ctime>
 using namespace std;
 #include "logging.h"
 #include "register.h"
 #include "instruction.h"
 #include "memory.h"
 #include "gui.h"
+
+const int UpdateTimes = 60;
+using time_point = std::chrono::steady_clock::time_point;
+using ms_type = std::chrono::duration<int, ratio<1, 1000> >;
+using milliseconds = std::chrono::milliseconds;
+
+inline time_point get_time_now() {
+  return std::chrono::steady_clock::now();
+}
 
 template <typename T>
 struct DummyIdentity {
@@ -45,12 +57,23 @@ void PrintInstruction(Instruction ins) {
   cout << endl;
 }
 
+#define INJECT_FUNC_CODE 0xd8
+
 class Machine {
 public:
   Machine() {
     memset(&reg, 0, sizeof(reg));
     reg.FR = 512;
     gui.set_video_addr(&(mem.get(0xa000, 0)));
+    InitIVT();
+    last_int08h_time = get_time_now();
+    use_prefix = false;
+  }
+  void InitIVT() {
+    for (int i = 0; i < 0x100; ++i) {
+      mem.get<uint16_t>(i * 4) = i;
+      mem.get<uint16_t>(i * 4 + 2) = 0xFFFF;
+    }
   }
   void load(const string& filename) {
     reg.IP = 0x7e00;
@@ -64,7 +87,7 @@ public:
   }
   void inject_qqt() {
     uint16_t base_addr = 0x7e00;
-    mem.get(base_addr + 0x17d) = 0xd8;
+    mem.get(base_addr + 0x17d) = INJECT_FUNC_CODE;
     inject_functions[base_addr + 0x17d] = std::bind(&Machine::ReadFloppy, this);
   }
   void run() {
@@ -72,13 +95,26 @@ public:
       if (rep_mode) {
         if (--reg.CX == 0) {
           rep_mode = false;
-        } else {
-          reg.IP = rep_IP; 
+        } else if (reg.IP == rep_next_ip && reg.CS == rep_next_cs) {
+          reg.CS = rep_CS;
+          reg.IP = rep_IP;
         }
       }
+
+      if (!use_prefix) {
+        time_point cur_time = get_time_now();
+        int diff_ms = std::chrono::duration_cast<milliseconds>(cur_time - last_int08h_time).count();
+        if (diff_ms >= 1000 / UpdateTimes) {
+          CALL_INT(0x08);
+          last_int08h_time = cur_time;
+        }
+      }
+
+      use_prefix = false;
+
       uint32_t addr = get_addr(reg.CS, reg.IP);
       uint8_t *p = &(mem.get(addr));
-#if 1
+#if 0
       cout << hex2str(addr - 0x7e00) << " OP:" << hex2str(*p) << endl <<
         " AX:" << hex2str(reg.AX) <<
         " BX:" << hex2str(reg.BX) <<
@@ -117,6 +153,9 @@ public:
         case 0x0e:
           PUSHw(reg.CS);
           break;
+        case 0x0f:
+          JZTWOBYTE(p+1);
+          break;
         case 0x16:
           PUSHw(reg.SS);
           break;
@@ -145,13 +184,13 @@ public:
           SUBGvEv(p+1);
           break;
         case 0x26:
-          pre_seg = &reg.ES;
+          SetSegPrefix(reg.ES);
           break;
         case 0x2E:
-          pre_seg = &reg.CS;
+          SetSegPrefix(reg.CS);
           break;
         case 0x3E:
-          pre_seg = &reg.DS;
+          SetSegPrefix(reg.DS);
           break;
         case 0x40:
           INC(reg.AX);
@@ -255,6 +294,12 @@ public:
         case 0x61:
           POPA();
           break;
+        case 0x66:
+          Set32bPrefix();
+          break;
+        case 0x6a:
+          PUSHIb(p+1);
+          break;
         case 0x74:
           JZ(p+1);
           break;
@@ -357,7 +402,7 @@ public:
         case 0xcd:
           INT(p+1);
           break;
-        case 0xd8:
+        case INJECT_FUNC_CODE:
           CallInjectFunc();
           break;
         case 0xd0:
@@ -387,7 +432,18 @@ public:
         default:
           LOG(FATAL) << "Unknown OpCode: [" << hex2str(addr - 0x7e00) << "]" << hex2str(*p);
       }
+
       reg.IP += 1;
+
+      if (!use_prefix) {
+        if (rep_mode) {
+          if (rep_next_cs == 0xFFFF) {
+            rep_next_ip = reg.IP;
+            rep_next_cs = reg.CS;
+          }
+        }
+      }
+
     }
   }
 private:
@@ -435,10 +491,44 @@ private:
     reg.IP += 1;
   }
   void CALL(uint8_t *p) {
-    reg.SP -= 2;
-    reg.IP += 2;
-    mem.get<uint16_t>(reg.SS, reg.SP) = reg.IP;
+    reg.IP += 2; // since offset occupy 2 bytes
+    PUSHw(reg.IP);
     reg.IP += *reinterpret_cast<uint16_t*>(p);
+  }
+  void CALLF(uint16_t seg, uint16_t offset) {
+    PUSHw(reg.CS);
+    PUSHw(reg.IP);
+    reg.CS = seg;
+    reg.IP = offset;
+  }
+  void CALL_INT(uint16_t id) {
+    if (!reg.get_flag(Flag::IF)) return;
+    uint16_t &offset = mem.get<uint16_t>(id * 4);
+    uint16_t &seg = mem.get<uint16_t>(id * 4 + 2);
+    PUSHF();
+    if (seg == 0xFFFF) {
+      CallDefaultINT(offset);
+    } else {
+      CALLF(seg, offset);
+    }
+  }
+  void CallDefaultINT(uint16_t id) {
+    PUSHw(reg.CS);
+    PUSHw(reg.IP);
+    switch (id) {
+      case 0x10:
+        ScreenINT();
+        break;
+      case 0x16:
+        KeyBoardINT();
+        break;
+      case 0x1a:
+        ClockINT();
+        break;
+      default:
+        LOG(FATAL) << "NotImplemented INT: " << hex2str(id);
+    };
+    IRET();
   }
   inline uint8_t _SUB8(uint8_t dest, uint8_t source) {
     return _SUB<int8_t, uint8_t>(dest, source);
@@ -457,28 +547,38 @@ private:
     lv = _ADD<int16_t, uint16_t>(lv, 1);
   }
   void INT(uint8_t *p) {
-    cout << "NotImplemented: INT 0x" << hex2str(*p) << endl;
+    uint8_t id = *p;
     reg.IP += 1;
+    CALL_INT(id);
   }
-  void _IPJump(uint8_t step) {
+  void _IPStep(uint8_t step) {
     reg.IP += step;
     if (step & (1 << 7)) {
       reg.IP -= 0x100;
     }
   }
+  void _IPStep(uint16_t step) {
+    reg.IP += step;
+  }
   void JZ(uint8_t *p) {
     if (reg.get_flag(Flag::ZF))
-      _IPJump(*reinterpret_cast<uint8_t*>(p));
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
+  }
+  void JZTWOBYTE(uint8_t *p) {
+    CHECK(*p == 0x84);
+    if (reg.get_flag(Flag::ZF))
+      _IPStep(*reinterpret_cast<uint16_t*>(p+1));
+    reg.IP += 3;
   }
   void JNZ(uint8_t *p) {
     if (!reg.get_flag(Flag::ZF))
-      _IPJump(*reinterpret_cast<uint8_t*>(p));
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
   }
   void LOOP(uint8_t *p) {
     if (--reg.CX != 0) {
-      _IPJump(*p);
+      _IPStep(*p);
     }
     reg.IP += 1;
   }
@@ -498,8 +598,7 @@ private:
       // Mem, Reg
       if (modrm.MOD == 0b00) {
         if (modrm.RM == 0b110) {
-          uT& offset = *reinterpret_cast<uT*>(p+1);
-          CHECK(pre_seg);
+          uT& offset = *reinterpret_cast<uT*>(p+1); CHECK(pre_seg);
           uint32_t addr = get_addr(*pre_seg, offset);
           pre_seg = nullptr;
           ev = &mem.get<uT>(addr);
@@ -580,7 +679,7 @@ private:
   void MOVeAXOv(uint8_t *p) {
     // Acc, MemOfs
     uint16_t& offset = *reinterpret_cast<uint16_t*>(p);
-    CHECK(pre_seg);
+    if (!pre_seg) pre_seg = &reg.DS;
     uint32_t addr = get_addr(*pre_seg, offset);
     uint16_t &rv = mem.get<uint16_t>(addr);
     uint16_t &lv = reg.AX;
@@ -654,16 +753,30 @@ private:
   }
   void OUTIbAL(uint8_t *p) {
     uint8_t &lv = *reinterpret_cast<uint8_t*>(p);
-    cout << "NotImplemented: out Ib, al - Ib: " << hex2str(lv) << " AL: " << hex2str(reg.AL) << endl; 
+    switch (lv) {
+      case 0x40:
+      case 0x43:
+        break;
+      default:
+        LOG(FATAL) << "NotImplemented: out Ib, al - Ib: " << hex2str(lv) << " AL: " << hex2str(reg.AL);
+    };
     reg.IP += 1;
   }
   void POPw(uint16_t &lv) {
     lv = mem.get<uint16_t>(reg.SS, reg.SP);
     reg.SP += 2;
   }
+  void POPb(uint8_t &lv) {
+    lv = mem.get<uint8_t>(reg.SS, reg.SP);
+    reg.SP += 1;
+  }
   void PUSHw(uint16_t &rv) {
     reg.SP -= 2;
     mem.get<uint16_t>(reg.SS, reg.SP) = rv;
+  }
+  void PUSHb(uint8_t &rv) {
+    reg.SP -= 1;
+    mem.get<uint8_t>(reg.SS, reg.SP) = rv;
   }
   void PUSHA() {
     uint16_t old_SP = reg.SP;
@@ -675,6 +788,13 @@ private:
     PUSHw(reg.BP);
     PUSHw(reg.SI);
     PUSHw(reg.DI);
+  }
+  void PUSHF() {
+    PUSHw(reg.FR);
+  }
+  void PUSHIb(uint8_t *p) {
+    PUSHb(*p);
+    reg.IP += 1;
   }
   void POPA() {
     uint16_t old_SP;
@@ -688,13 +808,24 @@ private:
     POPw(reg.AX);
     reg.SP = old_SP;
   }
+  void POPF() {
+    POPw(reg.FR);
+  }
   void RET() {
-    reg.IP = mem.get<uint16_t>(reg.SS, reg.SP);
-    reg.SP += 2;
+    POPw(reg.IP);
+  }
+  void IRET() {
+    POPw(reg.IP);
+    POPw(reg.CS);
+    POPw(reg.FR);
   }
   void REP() {
     rep_mode = true;
+    rep_CS = reg.CS;
     rep_IP = reg.IP + 1;
+    use_prefix = true;
+    rep_next_cs = 0xFFFF;
+    rep_next_ip = 0xFFFF;
   }
   void SHEb1(uint8_t *p) {
     ModRM& modrm = read_oosssmmm(p);
@@ -725,7 +856,7 @@ private:
     reg.IP += 2;
   }
   void STI() {
-    cout << "NotImplemented: STI" << endl; 
+    reg.set_flag(Flag::IF);
   }
   void SUBEbGb(uint8_t *p) {
     uint8_t *eb, *gb;
@@ -848,6 +979,48 @@ private:
   template <typename T> inline T& GetReg(const uint8_t REG) {
     return _GetReg(REG, DummyIdentity<T>());
   }
+  void SetSegPrefix(uint16_t &reg) {
+    pre_seg = &reg;
+    use_prefix = true;
+  }
+  void Set32bPrefix() {
+    use_prefix = true;
+  }
+private:
+  void ScreenINT() {
+    switch (reg.AX) {
+      case 0x03:
+      case 0x13:
+        break;
+      default:
+        LOG(FATAL) << "NotImplemented ScreenINT: " << hex2str(reg.AH);
+    };
+  }
+  void KeyBoardINT() {
+    switch (reg.AH) {
+      case 0x00:
+        reg.AL = gui.get_key();
+        break;
+      default:
+        LOG(FATAL) << "NotImplemented KeyBoardINT: " << hex2str(reg.AH);
+    };
+  }
+  void ClockINT() {
+    time_t cur_time;
+    time(&cur_time);
+    tm *time_p = localtime(&cur_time);
+    switch (reg.AX) {
+      case 0x0200:
+        reg.CH = time_p->tm_hour;
+        reg.CL = time_p->tm_min;
+        reg.DH = time_p->tm_sec;
+        reg.DL = 0;
+        reg.unset_flag(Flag::CF);
+        break;
+      default:
+        LOG(FATAL) << "NotImplemented ClockINT: " << hex2str(reg.AH);
+    };
+  }
 private:
   void read_deasm(const string& line) {
     // address | opcode | note
@@ -925,12 +1098,16 @@ private:
 private:
   uint16_t *pre_seg = nullptr;
   bool rep_mode = false;
-  uint16_t rep_IP; 
+  uint16_t rep_CS, rep_IP; 
+  uint16_t rep_next_cs, rep_next_ip;
 private:
   Registers reg;
   Memory mem;
   GUI gui;
   const char hexch[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
   map<uint32_t, std::function<void()> > inject_functions;
+  queue<uint8_t> key_buffer;
+  time_point last_int08h_time;
+  bool use_prefix;
 };
 
