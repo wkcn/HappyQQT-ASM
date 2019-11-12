@@ -434,6 +434,9 @@ public:
         case 0xe2:
           LOOP(p+1);
           break;
+        case 0xe3:
+          JCXZ(p+1);
+          break;
         case 0xe8:
           CALL(p+1);
           break;
@@ -449,11 +452,17 @@ public:
         case 0xf3:
           REP();
           break;
+        case 0xf6:
+          MULEb(p+1);
+          break;
         case 0xf7:
           MULEv(p+1);
           break;
         case 0xfb:
           STI();
+          break;
+        case 0xff:
+          INCDECw(p+1);
           break;
         default:
           LOG(FATAL) << "Unknown OpCode: [" << hex2str(addr - 0x7e00) << "]" << hex2str(*p);
@@ -580,6 +589,17 @@ private:
   void INC(uint16_t &lv) {
     lv = _ADD<int16_t, uint16_t>(lv, 1);
   }
+  void INCDECw(uint8_t *p) {
+    ModRM &modrm = read_oosssmmm(p);
+    uint16_t *v;
+    _GetEv(p, v);
+    if (modrm.REG == 0b000) {
+      *v = _ADD<int16_t, uint16_t>(*v, 1);
+    } else {
+      CHECK(modrm.REG == 0b001);
+      *v = _SUB<int16_t, uint16_t>(*v, 1);
+    }
+  }
   void INT(uint8_t *p) {
     uint8_t id = *p;
     reg.IP += 1;
@@ -604,10 +624,20 @@ private:
     reg.IP += 1;
   }
   void JZTWOBYTE(uint8_t *p) {
-    CHECK(*p == 0x84);
-    if (reg.get_flag(Flag::ZF))
-      _IPStep(*reinterpret_cast<uint16_t*>(p+1));
+    if (*p == 0x84) {
+      if (reg.get_flag(Flag::ZF))
+        _IPStep(*reinterpret_cast<uint16_t*>(p+1));
+    } else {
+      CHECK(*p == 0x85) << hex2str(*p);
+      if (!reg.get_flag(Flag::ZF))
+        _IPStep(*reinterpret_cast<uint16_t*>(p+1));
+    }
     reg.IP += 3;
+  }
+  void JCXZ(uint8_t *p) {
+    if (reg.CX == 0)
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
   }
   void JNZ(uint8_t *p) {
     if (!reg.get_flag(Flag::ZF))
@@ -629,6 +659,59 @@ private:
     ModRM& modrm = read_oosssmmm(p);
     gv = &GetReg<uT>(modrm.REG);
   }
+  void _GetSegAndOffset(uint8_t *p, uint16_t &offset) {
+    ModRM &modrm = read_oosssmmm(p);
+    if (!pre_seg) {
+      switch (modrm.RM) {
+        case 0b000:
+        case 0b001:
+        case 0b100:
+        case 0b101:
+        case 0b111:
+          pre_seg = &reg.DS; break;
+        case 0b010:
+        case 0b011:
+        case 0b110:
+          pre_seg = &reg.SS; break;
+        default:
+          LOG(FATAL) << "Unknown modrm.RM: " << hex2str(modrm.RM);
+      };
+    }
+
+    reg.IP += 1; // modrm
+
+    if (modrm.MOD == 0b00 && modrm.RM == 0b110) {
+      offset = *reinterpret_cast<uint16_t*>(p+1);
+      reg.IP += 2;
+    } else {
+      switch (modrm.RM) {
+        case 0b000:
+          offset = reg.BX + reg.SI; break;
+        case 0b001:
+          offset = reg.BX + reg.DI; break;
+        case 0b010:
+          offset = reg.BP + reg.SI; break;
+        case 0b011:
+          offset = reg.BP + reg.DI; break;
+        case 0b100:
+          offset = reg.SI; break;
+        case 0b101:
+          offset = reg.DI; break;
+        case 0b110:
+          offset = reg.BP; break;
+        case 0b111:
+          offset = reg.BX; break;
+        default:
+          LOG(FATAL) << "Unknown modrm.RM: " << hex2str(modrm.RM);
+      };
+
+      if (modrm.MOD == 0b01) {
+        offset += *(p+1);
+        reg.IP += 1;
+      } else CHECK(modrm.MOD == 0b00);
+    }
+
+  }
   template <typename uT>
   void _GetEv(uint8_t *p, uT *&ev) {
     ModRM &modrm = read_oosssmmm(p);
@@ -638,66 +721,12 @@ private:
       reg.IP += 1;
     } else { 
       // Mem, Reg
-      if (modrm.MOD == 0b00) {
-        if (modrm.RM == 0b110) {
-          uT& offset = *reinterpret_cast<uT*>(p+1); CHECK(pre_seg);
-          uint32_t addr = get_addr(*pre_seg, offset);
-          pre_seg = nullptr;
-          ev = &mem.get<uT>(addr);
-          reg.IP += 3;
-        } else {
-          if (!pre_seg) {
-            switch (modrm.RM) {
-              case 0b000:
-              case 0b001:
-              case 0b100:
-              case 0b101:
-              case 0b111:
-                pre_seg = &reg.DS; break;
-              case 0b010:
-              case 0b011:
-              case 0b110:
-                pre_seg = &reg.SS; break;
-              default:
-                LOG(FATAL) << "Unknown modrm.RM: " << hex2str(modrm.RM);
-            };
-          }
-          uint16_t offset;
-          switch (modrm.RM) {
-            case 0b000:
-              offset = reg.BX + reg.SI; break;
-            case 0b001:
-              offset = reg.BX + reg.DI; break;
-            case 0b010:
-              offset = reg.BP + reg.SI; break;
-            case 0b011:
-              offset = reg.BP + reg.DI; break;
-            case 0b100:
-              offset = reg.SI; break;
-            case 0b101:
-              offset = reg.DI; break;
-            case 0b110:
-              offset = reg.BP; break;
-            case 0b111:
-              offset = reg.BX; break;
-            default:
-              LOG(FATAL) << "Unknown modrm.RM: " << hex2str(modrm.RM);
-          };
-          uint32_t addr = get_addr(*pre_seg, offset);
-          pre_seg = nullptr;
-          ev = &mem.get<uT>(addr);
-          reg.IP += 1;
-        }
-      } else {
-        CHECK(modrm.MOD == 0b01);
-        CHECK(modrm.RM == 0b100); // DS:[SI]
-        uint8_t& offset = *reinterpret_cast<uint8_t*>(p+1);
-        if (!pre_seg) pre_seg = &reg.DS;
-        uint32_t addr = get_addr(*pre_seg, reg.SI + offset);
-        pre_seg = nullptr;
-        ev = &mem.get<uT>(addr);
-        reg.IP += 2;
-      }
+      uint16_t offset;
+      _GetSegAndOffset(p, offset);
+      CHECK(pre_seg);
+      uint32_t addr = get_addr(*pre_seg, offset);
+      pre_seg = nullptr;
+      ev = &mem.get<uT>(addr);
     }
   }
   template <typename uT>
@@ -801,11 +830,22 @@ private:
      reg.SI += 2;
    }
   }
+  void MULEb(uint8_t *p) {
+    ModRM& modrm = read_oosssmmm(p);
+    CHECK(modrm.MOD == 0b11);
+    CHECK(modrm.REG == 0b100);
+    uint8_t &rv = GetReg8(modrm.RM);
+    uint16_t rv16 = static_cast<uint16_t>(rv);
+    uint32_t lv16 = static_cast<uint32_t>(reg.AL);
+    reg.AX = lv16 * rv16;
+    reg.set_flag(Flag::ZF, reg.AX == 0);
+    reg.IP += 1;
+  }
   void MULEv(uint8_t *p) {
     uint16_t *ev;
     _GetEv(p, ev);
-    uint32_t rv32 = (uint32_t)(*ev);
-    uint32_t lv32 = (uint32_t)reg.AX;
+    uint32_t rv32 = static_cast<uint32_t>(*ev);
+    uint32_t lv32 = static_cast<uint32_t>(reg.AX);
     lv32 *= rv32;
     reg.AX = lv32 & 0xFFFF;
     reg.DX = (lv32 >> 16) & 0xFFFF;
