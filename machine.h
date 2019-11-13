@@ -140,6 +140,9 @@ public:
         case 0x03:
           ADDGvEv(p+1);
           break;
+        case 0x04:
+          ADDALIb(p+1);
+          break;
         case 0x05:
           ADDeAXIv(p+1);
           break;
@@ -149,11 +152,44 @@ public:
         case 0x07:
           POPw(reg.ES);
           break;
+        case 0x08:
+          OREbGb(p+1);
+          break;
+        case 0x09:
+          OREvGv(p+1);
+          break;
+        case 0x0a:
+          ORGbEb(p+1);
+          break;
+        case 0x0b:
+          ORGvEv(p+1);
+          break;
+        case 0x0c:
+          ORALIb(p+1);
+          break;
+        case 0x0d:
+          OReAXIv(p+1);
+          break;
         case 0x0e:
           PUSHw(reg.CS);
           break;
         case 0x0f:
           TWOBYTE(p+1);
+          break;
+        case 0x10:
+          ADCEbGb(p+1);
+          break;
+        case 0x11:
+          ADCEvGv(p+1);
+          break;
+        case 0x12:
+          ADCGbEb(p+1);
+          break;
+        case 0x13:
+          ADCGvEv(p+1);
+          break;
+        case 0x14:
+          ADCALIb(p+1);
           break;
         case 0x16:
           PUSHw(reg.SS);
@@ -161,17 +197,50 @@ public:
         case 0x17:
           POPw(reg.SS);
           break;
+        case 0x18:
+          SBBEbGb(p+1);
+          break;
+        case 0x19:
+          SBBEvGv(p+1);
+          break;
+        case 0x1a:
+          SBBGbEb(p+1);
+          break;
+        case 0x1b:
+          SBBGvEv(p+1);
+          break;
+        case 0x1c:
+          SBBALIb(p+1);
+          break;
         case 0x1e:
           PUSHw(reg.DS);
           break;
         case 0x1f:
           POPw(reg.DS);
           break;
+        case 0x20:
+          ANDEbGb(p+1);
+          break;
+        case 0x21:
+          ANDEvGv(p+1);
+          break;
+        case 0x22:
+          ANDGbEb(p+1);
+          break;
+        case 0x23:
+          ANDGvEv(p+1);
+          break;
         case 0x24:
           ANDALIb(p+1);
           break;
         case 0x25:
           ANDeAXIv(p+1);
+          break;
+        case 0x26:
+          SetSegPrefix(reg.ES);
+          break;
+        case 0x27:
+          DAA();
           break;
         case 0x28:
           SUBEbGb(p+1);
@@ -185,17 +254,35 @@ public:
         case 0x2b:
           SUBGvEv(p+1);
           break;
-        case 0x26:
-          SetSegPrefix(reg.ES);
+        case 0x2c:
+          SUBALIb(p+1);
           break;
         case 0x2d:
           SUBeAXIv(p+1);
           break;
-        case 0x2E:
+        case 0x2e:
           SetSegPrefix(reg.CS);
+          break;
+        case 0x2f:
+          DAS();
+          break;
+        case 0x30:
+          XOREbGb(p+1);
           break;
         case 0x31:
           XOREvGv(p+1);
+          break;
+        case 0x32:
+          XORGbEb(p+1);
+          break;
+        case 0x33:
+          XORGvEv(p+1);
+          break;
+        case 0x34:
+          XORALIb(p+1);
+          break;
+        case 0x35:
+          XOReAXIv(p+1);
           break;
         case 0x39:
           CMPEvGv(p+1);
@@ -311,6 +398,9 @@ public:
         case 0x61:
           POPA();
           break;
+        case 0x62:
+          BOUNDGvMa(p+1);
+          break;
         case 0x66:
           Set32bPrefix();
           break;
@@ -356,7 +446,7 @@ public:
           ADDEvIv(p+1);
           break;
         case 0x83:
-          ADDEvIb(p+1);
+          SUBEvIb(p+1);
           break;
         case 0x85:
           TESTEvGv(p+1);
@@ -564,6 +654,34 @@ private:
     reg.AX = _ADD<int16_t, uint16_t>(reg.AX, rv);
     reg.IP += 2;
   }
+  void ADCEbGb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *eb = _ADD<int8_t, uint8_t>(*eb, *gb, reg.get_flag(Flag::CF));
+  }
+  void ADCEvGv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *ev = _ADD<int16_t, uint16_t>(*ev, *gv, reg.get_flag(Flag::CF));
+  }
+  void ADCGbEb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *gb = _ADD<int8_t, uint8_t>(*gb, *eb, reg.get_flag(Flag::CF));
+  }
+  void ADCGvEv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *gv = _ADD<int16_t, uint16_t>(*gv, *ev, reg.get_flag(Flag::CF));
+  }
+  void ADCALIb(uint8_t *p) {
+    // Acc, Imm
+    uint8_t& lv = reg.AL;
+    uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
+    lv = _ADD<int8_t, uint8_t>(lv, rv, reg.get_flag(Flag::CF));
+    reg.IP += 1;
+    UpdateFlag(lv);
+  }
   void ANDALIb(uint8_t *p) {
     // Acc, Imm
     uint8_t& lv = reg.AL;
@@ -578,20 +696,49 @@ private:
     reg.IP += 4;
     UpdateFlag(reg.AX);
   }
+  void ANDEbGb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *eb &= *gb;
+    UpdateFlag(*eb);
+  }
+  void ANDEvGv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *ev &= *gv;
+    UpdateFlag(*ev);
+  }
+  void ANDGbEb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *gb &= *eb;
+    UpdateFlag(*gb);
+  }
+  void ANDGvEv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *gv &= *ev;
+    UpdateFlag(*gv);
+  }
   void ADDEvIv(uint8_t *p) {
     // Mem, Imm
     uint16_t *ev, *iv;
     _GetEvIv(p, ev, iv);
     *ev = _ADD<int16_t, uint16_t>(*ev, *iv);
   }
-  void ADDEvIb(uint8_t *p) {
-    uint16_t *ev;
-    uint8_t *iv;
-    _GetEvIv(p, ev, iv);
-    *ev = _ADD<int16_t, uint16_t>(*ev, *iv);
+  void ADDALIb(uint8_t *p) {
+    // Acc, Imm
+    uint8_t& lv = reg.AL;
+    uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
+    lv = _ADD<int8_t, uint8_t>(lv, rv);
+    reg.IP += 1;
+  }
+  void BOUNDGvMa(uint8_t *p) {
+    // TODO
+    reg.IP += 2;
   }
   void CALL(uint8_t *p) {
-    cout << "=====CCC" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << " = " << hex2str(reg.IP - 0x7e00) << endl; 
+    cout << "=====CCC" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << " = " << hex2str(reg.IP - 0x7e00) << " SP: " << hex2str(reg.SP) << endl; 
     reg.IP += use_32bits_mode ? 4 : 2;
     uint16_t IPPlus1 = reg.IP + 1;
     PUSHw(IPPlus1);
@@ -661,6 +808,42 @@ private:
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     _SUB8(*ev, *gv);
+  }
+  void DAA() {
+    // TOFIX
+    bool success = false;
+    if ((reg.AL & 0xF) > 9 || reg.get_flag(Flag::AF)) {
+      reg.AL += 6;
+      reg.set_flag(Flag::AF);
+      success = true;
+    }
+    if ((((reg.AL >> 4) & 0xF) > 9) || reg.get_flag(Flag::CF)) {
+      reg.AL += 0x60; 
+      reg.set_flag(Flag::CF);
+      success = true;
+    }
+    if (!success) {
+      reg.unset_flag(Flag::AF | Flag::CF);
+    }
+    UpdateFlag(reg.AL);
+  }
+  void DAS() {
+    // TOFIX
+    bool success = false;
+    if ((reg.AL & 0xF) > 9 || reg.get_flag(Flag::AF)) {
+      reg.AL -= 6;
+      reg.set_flag(Flag::AF);
+      success = true;
+    }
+    if (reg.AL > 0x9f || reg.get_flag(Flag::CF)) {
+      reg.AL -= 0x60; 
+      reg.set_flag(Flag::CF);
+      success = true;
+    }
+    if (!success) {
+      reg.unset_flag(Flag::AF | Flag::CF);
+    }
+    UpdateFlag(reg.AL);
   }
   void DEC(uint16_t &lv) {
     lv = _SUB<int16_t, uint16_t>(lv, 1);
@@ -841,6 +1024,7 @@ private:
   }
   template <typename uT>
   int _GetEv(uint8_t *p, uT *&ev) {
+    // MOD, RM
     ModRM &modrm = read_oosssmmm(p);
     if (modrm.MOD == 0b11) {
       ev = &GetReg<uT>(modrm.RM);
@@ -1105,6 +1289,40 @@ private:
     cout << "=====OOO:" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << endl; 
     reg.IP -= 1; // cancel +1 in the end
   }
+  void OREbGb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *eb |= *gb;
+    UpdateFlag(*eb);
+  }
+  void OREvGv(uint8_t *p) {
+    uint16_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *eb |= *gb;
+    UpdateFlag(*eb);
+  }
+  void ORGbEb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *gb |= *eb;
+    UpdateFlag(*gb);
+  }
+  void ORGvEv(uint8_t *p) {
+    uint16_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *gb |= *eb;
+    UpdateFlag(*gb);
+  }
+  void ORALIb(uint8_t *p) {
+    reg.AL |= *p;
+    UpdateFlag(reg.AL);
+    reg.IP += 1;
+  }
+  void OReAXIv(uint8_t *p) {
+    uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
+    reg.AX |= rv;
+    reg.IP += 2;
+  }
   void REP() {
     rep_mode = true;
     rep_CS = reg.CS;
@@ -1112,6 +1330,33 @@ private:
     use_prefix = true;
     rep_next_cs = 0xFFFF;
     rep_next_ip = 0xFFFF;
+  }
+  void SBBEvGv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *ev = _SUB<int16_t, uint16_t>(*ev, (*gv), reg.get_flag(Flag::CF));
+  }
+  void SBBALIb(uint8_t *p) {
+    // Acc, Imm
+    uint8_t& lv = reg.AL;
+    uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
+    lv = _SUB<int8_t, uint8_t>(lv, rv, reg.get_flag(Flag::CF));
+    reg.IP += 1;
+  }
+  void SBBEbGb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *eb = _SUB<int8_t, uint8_t>(*eb, *gb, reg.get_flag(Flag::CF));
+  }
+  void SBBGbEb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *gb = _SUB<int8_t, uint8_t>(*gb, *eb, reg.get_flag(Flag::CF));
+  }
+  void SBBGvEv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *gv = _SUB<int16_t, uint16_t>(*gv, *ev, reg.get_flag(Flag::CF));
   }
   void SHEb1(uint8_t *p) {
     ModRM& modrm = read_oosssmmm(p);
@@ -1187,6 +1432,19 @@ private:
     reg.AX = _SUB<int16_t, uint16_t>(reg.AX, rv);
     reg.IP += 2;
   }
+  void SUBEvIb(uint8_t *p) {
+    uint16_t *ev;
+    uint8_t *iv;
+    _GetEvIv(p, ev, iv);
+    *ev = _SUB<int16_t, uint16_t>(*ev, *iv);
+  }
+  void SUBALIb(uint8_t *p) {
+    // Acc, Imm
+    uint8_t& lv = reg.AL;
+    uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
+    lv = _SUB<int8_t, uint8_t>(lv, rv);
+    reg.IP += 1;
+  }
   void TESTEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
@@ -1234,34 +1492,81 @@ private:
     };
     // if (*p == 0xb7) cout << "BBB:" << hex2str(reg.IP) << endl;
   }
+  void XOREbGb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *eb = (*eb) ^ (*gb);
+    UpdateFlag(*eb);
+  }
   void XOREvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *ev = (*ev) ^ (*gv);
     UpdateFlag(*ev);
   }
+  void XORGbEb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    *gb = (*gb) ^ (*eb);
+    UpdateFlag(*gb);
+  }
+  void XORGvEv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *gv = (*gv) ^ (*ev);
+    UpdateFlag(*gv);
+  }
+  void XORALIb(uint8_t *p) {
+    uint8_t& lv = reg.AL;
+    uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
+    lv ^= rv;
+    UpdateFlag(lv);
+    reg.IP += 1;
+  }
+  void XOReAXIv(uint8_t *p) {
+    uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
+    reg.AX ^= rv;
+    UpdateFlag(reg.AX);
+    reg.IP += 2;
+  }
 private:
   template<typename T, typename uT>
-  uT _ADD(uT dest, uT source) {
+  uT _ADD(uT dest, uT source, bool carry=false) {
     uT res = dest + source;
     bool pos_res = static_cast<T>(res) >= 0;
     bool pos_dest = static_cast<T>(dest) >= 0;
     bool pos_source = static_cast<T>(source) >= 0;
-    bool overflow = res != 0 && (pos_dest == pos_source) && pos_res != pos_dest;
+    bool overflow;
+    if (carry && ~res == 0) {
+      overflow = true;
+      res = 0;
+    } else {
+      // TOFIX
+      if (carry) res += 1;
+      overflow = res != 0 && (pos_dest == pos_source) && pos_res != pos_dest;
+    }
     reg.set_flag(Flag::OF, overflow);
     reg.set_flag(Flag::CF, overflow);
     UpdateFlag(res);
     return res;
   }
   template<typename T, typename uT>
-  uT _SUB(uT dest, uT source) {
+  uT _SUB(uT dest, uT source, bool borrow=false) {
     uT res = dest - source;
-    reg.set_flag(Flag::CF, dest < source);
     bool pos_res = static_cast<T>(res) >= 0;
     bool pos_dest = static_cast<T>(dest) >= 0;
     bool pos_source = static_cast<T>(source) >= 0;
-    bool overflow = res != 0 && (pos_dest != pos_source) && pos_res != pos_dest;
+    bool overflow;
+    if (borrow && res == 0) {
+      overflow = true;
+      res = ~res;
+    } else {
+      // TOFIX
+      if (borrow) res -= 1;
+      overflow = res != 0 && (pos_dest != pos_source) && pos_res != pos_dest;
+    }
     reg.set_flag(Flag::OF, overflow);
+    reg.set_flag(Flag::CF, dest < source);
     UpdateFlag(res);
     return res;
   }
