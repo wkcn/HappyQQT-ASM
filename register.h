@@ -1,16 +1,17 @@
 #pragma once
 #include <cstdint>
 
-enum Flag{
-  CF = 0,
-  PF = 2,
-  AF = 4,
-  ZF = 6,
-  SF = 7,
-  TF = 8,
-  IF = 9,
-  DF = 10,
-  OF = 11
+namespace Flag {
+  const uint16_t
+    CF = 1 << 0,
+    PF = 1 << 2,
+    AF = 1 << 4,
+    ZF = 1 << 6,
+    SF = 1 << 7,
+    TF = 1 << 8,
+    IF = 1 << 9,
+    DF = 1 << 10,
+    OF = 1 << 11;
 };
 
 struct Registers {
@@ -38,20 +39,17 @@ struct Registers {
   uint16_t FR;
   uint16_t SP, BP, SI, DI;
   uint16_t CS, DS, SS, ES;
-  void set_flag(Flag g) {
-    uint16_t w = 1 << uint16_t(g);
-    FR |= w;
+  void set_flag(uint16_t g) {
+    FR |= g;
   }
-  void unset_flag(Flag g) {
-    uint16_t w = ~(1 << uint16_t(g));
-    FR &= w;
+  void unset_flag(uint16_t g) {
+    FR &= ~g;
   }
-  void set_flag(Flag g, bool b) {
+  void set_flag(uint16_t g, bool b) {
     if (b) set_flag(g);
     else unset_flag(g);
   }
-  bool get_flag(Flag g) {
-    uint16_t w = 1 << uint16_t(g);
-    return FR & w;
+  bool get_flag(uint16_t g) {
+    return FR & g;
   }
 };

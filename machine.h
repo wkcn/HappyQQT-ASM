@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <queue>
 using namespace std;
 #include "logging.h"
 #include "register.h"
@@ -93,7 +94,6 @@ public:
   void run() {
     while (1) {
       uint16_t cc = mem.get<uint16_t>(8*4+2);
-      CHECK(cc == 0 || cc == 0xFFFF) << hex2str(cc) << "!" << hex2str(reg.CS) << ":" << hex2str(reg.IP) << "+" << hex2str(reg.SS) << ":" << hex2str(reg.SP);
       if (rep_mode) {
         if (--reg.CX == 0) {
           rep_mode = false;
@@ -103,14 +103,8 @@ public:
         }
       }
 
-      if (!use_prefix) {
-        time_point cur_time = get_time_now();
-        int diff_ms = std::chrono::duration_cast<milliseconds>(cur_time - last_int08h_time).count();
-        if (diff_ms >= 1000 / UpdateTimes) {
-          CALL_INT(0x08);
-          last_int08h_time = cur_time;
-        }
-      }
+      history.push(reg.IP);
+      if (history.size() > 100) history.pop();
 
       use_prefix = false;
 
@@ -146,6 +140,9 @@ public:
         case 0x03:
           ADDGvEv(p+1);
           break;
+        case 0x05:
+          ADDeAXIv(p+1);
+          break;
         case 0x06:
           PUSHw(reg.ES);
           break;
@@ -156,7 +153,7 @@ public:
           PUSHw(reg.CS);
           break;
         case 0x0f:
-          JZTWOBYTE(p+1);
+          TWOBYTE(p+1);
           break;
         case 0x16:
           PUSHw(reg.SS);
@@ -194,10 +191,19 @@ public:
         case 0x2E:
           SetSegPrefix(reg.CS);
           break;
+        case 0x31:
+          XOREvGv(p+1);
+          break;
+        case 0x39:
+          CMPEvGv(p+1);
+          break;
         case 0x3c:
           CMPALIb(p+1);
           break;
-        case 0x3E:
+        case 0x3d:
+          CMPeAXIv(p+1);
+          break;
+        case 0x3e:
           SetSegPrefix(reg.DS);
           break;
         case 0x40:
@@ -311,11 +317,25 @@ public:
         case 0x6a:
           PUSHIb(p+1);
           break;
+        case 0x72:
+          JC(p+1);
+          break;
+        case 0x73:
+          JNC(p+1);
         case 0x74:
           JZ(p+1);
           break;
         case 0x75:
           JNZ(p+1);
+          break;
+        case 0x76:
+          JNA(p+1);
+          break;
+        case 0x7d:
+          JNL(p+1);
+          break;
+        case 0x7e:
+          JNG(p+1);
           break;
         case 0x80:
           CMPEbIb(p+1);
@@ -343,6 +363,9 @@ public:
           break;
         case 0x8c:
           MOVEwSw(p+1);
+          break;
+        case 0x8d:
+          LEAGvM(p+1);
           break;
         case 0x8e:
           MOVSwEw(p+1);
@@ -410,6 +433,9 @@ public:
         case 0xc0:
           SHEbIb(p+1);
           break;
+        case 0xc1:
+          SHEvIb(p+1);
+          break;
         case 0xc3:
           RET();
           break;
@@ -424,6 +450,9 @@ public:
           break;
         case 0xcd:
           INT(p+1);
+          break;
+        case 0xcf:
+          IRET();
           break;
         case INJECT_FUNC_CODE:
           CallInjectFunc();
@@ -442,6 +471,9 @@ public:
           break;
         case 0xe6:
           OUTIbAL(p+1);
+          break;
+        case 0xe9:
+          JMPJz(p+1);
           break;
         case 0xeb:
           JMPJb(p+1);
@@ -465,7 +497,19 @@ public:
           INCDECw(p+1);
           break;
         default:
-          LOG(FATAL) << "Unknown OpCode: [" << hex2str(addr - 0x7e00) << "]" << hex2str(*p);
+          PrintHistory();
+          LOG(FATAL) << "Unknown OpCode: [" << hex2str(reg.CS) << ":" << hex2str(reg.IP) << "=" << hex2str(addr - 0x7e00) << "]" << hex2str(*p);
+      }
+
+      if (!use_prefix && !rep_mode) {
+        time_point cur_time = get_time_now();
+        int diff_ms = std::chrono::duration_cast<milliseconds>(cur_time - last_int08h_time).count();
+        if (diff_ms >= 1000 / UpdateTimes) {
+          if (CALL_INT(0x08)) {
+            reg.IP -= 1;
+          }
+          last_int08h_time = cur_time;
+        }
       }
 
       reg.IP += 1;
@@ -503,6 +547,11 @@ private:
     _GetEvGv(p, ev, gv);
     *gv = _ADD<int16_t, uint16_t>(*gv, *ev);
   }
+  void ADDeAXIv(uint8_t *p) {
+    uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
+    reg.AX = _ADD<int16_t, uint16_t>(reg.AX, rv);
+    reg.IP += 2;
+  }
   void ANDALIb(uint8_t *p) {
     // Acc, Imm
     uint8_t& lv = reg.AL;
@@ -513,45 +562,49 @@ private:
   }
   void ADDEvIv(uint8_t *p) {
     // Mem, Imm
-    uint16_t *ev;
-    _GetEv(p, ev);
-    uint16_t &rv = *reinterpret_cast<uint16_t*>(p+1);
-    *ev = _ADD<int16_t, uint16_t>(*ev, rv);
-    reg.IP += 2;
+    uint16_t *ev, *iv;
+    _GetEvIv(p, ev, iv);
+    *ev = _ADD<int16_t, uint16_t>(*ev, *iv);
   }
   void ADDEvIb(uint8_t *p) {
     uint16_t *ev;
-    _GetEv(p, ev);
-    uint16_t rv = *reinterpret_cast<uint8_t*>(p+1);
-    *ev = _ADD<int16_t, uint16_t>(*ev, rv);
-    reg.IP += 1;
+    uint8_t *iv;
+    _GetEvIv(p, ev, iv);
+    *ev = _ADD<int16_t, uint16_t>(*ev, *iv);
   }
   void CALL(uint8_t *p) {
-    reg.IP += 2; // since offset occupy 2 bytes
-    PUSHw(reg.IP);
+    cout << "=====CCC" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << " = " << hex2str(reg.IP - 0x7e00) << endl; 
+    reg.IP += use_32bits_mode ? 4 : 2;
+    uint16_t IPPlus1 = reg.IP + 1;
+    PUSHw(IPPlus1);
     reg.IP += *reinterpret_cast<uint16_t*>(p);
   }
   void CALLF(uint16_t seg, uint16_t offset) {
     PUSHw(reg.CS);
-    PUSHw(reg.IP);
+    uint16_t IPPlus1 = reg.IP + 1;
+    PUSHw(IPPlus1);
     reg.CS = seg;
     reg.IP = offset;
   }
-  void CALL_INT(uint16_t id) {
-    if (!reg.get_flag(Flag::IF)) return;
+  bool CALL_INT(uint16_t id) {
+    if (!reg.get_flag(Flag::IF)) return false;
     uint16_t &offset = mem.get<uint16_t>(id * 4);
     uint16_t &seg = mem.get<uint16_t>(id * 4 + 2);
+    cout << "=====III" << id << "|" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << endl; 
     PUSHF();
     reg.unset_flag(Flag::IF);
     if (seg == 0xFFFF) {
       CallDefaultINT(offset);
+      return false;
     } else {
       CALLF(seg, offset);
     }
+    return true;
   }
   void CallDefaultINT(uint16_t id) {
     PUSHw(reg.CS);
-    PUSHw(reg.IP);
+    uint16_t IPPlus1 = reg.IP + 1;
+    PUSHw(IPPlus1);
     switch (id) {
       case 0x08:
         break;
@@ -576,12 +629,20 @@ private:
     _SUB8(reg.AL, *p);
     reg.IP += 1;
   }
+  void CMPeAXIv(uint8_t *p) {
+    uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
+    _SUB<int16_t, uint16_t>(reg.AX, rv);
+    reg.IP += 2;
+  }
   void CMPEbIb(uint8_t *p) {
-    uint8_t *ev;
-    _GetEv(p, ev);
-    uint8_t &rv = *reinterpret_cast<uint8_t*>(p+1);
-    _SUB8(*ev, rv);
-    reg.IP += 1;
+    uint8_t *ev, *iv;
+    _GetEvIv(p, ev, iv);
+    _SUB8(*ev, *iv);
+  }
+  void CMPEvGv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    _SUB8(*ev, *gv);
   }
   void DEC(uint16_t &lv) {
     lv = _SUB<int16_t, uint16_t>(lv, 1);
@@ -596,6 +657,7 @@ private:
     if (modrm.REG == 0b000) {
       *v = _ADD<int16_t, uint16_t>(*v, 1);
     } else {
+      if (modrm.REG != 0b001) PrintHistory();
       CHECK(modrm.REG == 0b001);
       *v = _SUB<int16_t, uint16_t>(*v, 1);
     }
@@ -618,21 +680,24 @@ private:
     _IPStep(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
   }
+  void JMPJz(uint8_t *p) {
+    _IPStep(*reinterpret_cast<uint16_t*>(p));
+    reg.IP += 2;
+  }
+  void JC(uint8_t *p) {
+    if (reg.get_flag(Flag::CF))
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+  }
+  void JNC(uint8_t *p) {
+    if (!reg.get_flag(Flag::CF))
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+  }
   void JZ(uint8_t *p) {
     if (reg.get_flag(Flag::ZF))
       _IPStep(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
-  }
-  void JZTWOBYTE(uint8_t *p) {
-    if (*p == 0x84) {
-      if (reg.get_flag(Flag::ZF))
-        _IPStep(*reinterpret_cast<uint16_t*>(p+1));
-    } else {
-      CHECK(*p == 0x85) << hex2str(*p);
-      if (!reg.get_flag(Flag::ZF))
-        _IPStep(*reinterpret_cast<uint16_t*>(p+1));
-    }
-    reg.IP += 3;
   }
   void JCXZ(uint8_t *p) {
     if (reg.CX == 0)
@@ -641,6 +706,21 @@ private:
   }
   void JNZ(uint8_t *p) {
     if (!reg.get_flag(Flag::ZF))
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+  }
+  void JNA(uint8_t *p) {
+    if (reg.get_flag(Flag::ZF | Flag::CF))
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+  }
+  void JNG(uint8_t *p) {
+    if (reg.get_flag(Flag::ZF | Flag::CF))
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+  }
+  void JNL(uint8_t *p) {
+    if (reg.get_flag(Flag::ZF) || !reg.get_flag(Flag::CF))
       _IPStep(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
   }
@@ -654,12 +734,22 @@ private:
     reg.SP = reg.BP;
     POPw(reg.BP);
   }
+  void LEAGvM(uint8_t *p) {
+    ModRM& modrm = read_oosssmmm(p);
+    CHECK(modrm.MOD == 0b01);
+    uint16_t *gv, *ev;
+    gv = &GetReg16(modrm.REG);
+    ev = &GetReg16(modrm.RM);
+    *gv = *ev + static_cast<uint16_t>(*(p+1));
+    reg.IP += 2;
+  }
   template <typename uT>
   void _GetGv_nostep(uint8_t *p, uT *&gv) {
     ModRM& modrm = read_oosssmmm(p);
     gv = &GetReg<uT>(modrm.REG);
   }
-  void _GetSegAndOffset(uint8_t *p, uint16_t &offset) {
+  int _GetSegAndOffset(uint8_t *p, uint16_t &offset) {
+    int ip_update = 1;
     ModRM &modrm = read_oosssmmm(p);
     if (!pre_seg) {
       switch (modrm.RM) {
@@ -678,11 +768,9 @@ private:
       };
     }
 
-    reg.IP += 1; // modrm
-
     if (modrm.MOD == 0b00 && modrm.RM == 0b110) {
       offset = *reinterpret_cast<uint16_t*>(p+1);
-      reg.IP += 2;
+      ip_update += 2;
     } else {
       switch (modrm.RM) {
         case 0b000:
@@ -707,32 +795,47 @@ private:
 
       if (modrm.MOD == 0b01) {
         offset += *(p+1);
-        reg.IP += 1;
-      } else CHECK(modrm.MOD == 0b00);
+        ip_update += 1;
+      } else if (modrm.MOD == 0b10) { 
+        offset += *reinterpret_cast<uint16_t*>(p+1);
+        ip_update += 2;
+      } else CHECK(modrm.MOD == 0b00) << hex2str(reg.CS) << ":" << hex2str(reg.IP) << ", " << hex2str(reg.IP - 0x7e00) << ", " << hex2str(*p);
     }
-
+    reg.IP += ip_update;
+    return ip_update;
   }
   template <typename uT>
-  void _GetEv(uint8_t *p, uT *&ev) {
+  int _GetEv(uint8_t *p, uT *&ev) {
     ModRM &modrm = read_oosssmmm(p);
     if (modrm.MOD == 0b11) {
       ev = &GetReg<uT>(modrm.RM);
       // Reg, Reg
       reg.IP += 1;
-    } else { 
-      // Mem, Reg
-      uint16_t offset;
-      _GetSegAndOffset(p, offset);
-      CHECK(pre_seg);
-      uint32_t addr = get_addr(*pre_seg, offset);
-      pre_seg = nullptr;
-      ev = &mem.get<uT>(addr);
+      return 1;
     }
+    // Mem, Reg
+    uint16_t offset;
+    int ip_update = _GetSegAndOffset(p, offset);
+    CHECK(pre_seg);
+    uint32_t addr = get_addr(*pre_seg, offset);
+    pre_seg = nullptr;
+    ev = &mem.get<uT>(addr);
+    return ip_update; 
   }
   template <typename uT>
   void _GetEvGv(uint8_t *p, uT *&ev, uT *&gv) {
     _GetGv_nostep(p, gv);
     _GetEv(p, ev);
+  }
+  template <typename uT>
+  void _GetEvIv(uint8_t *p, uT *&ev, uT *&iv) {
+    iv = reinterpret_cast<uT*>(p+_GetEv(p, ev));
+    reg.IP += sizeof(uT);
+  }
+  template <typename uT, typename iT>
+  void _GetEvIv(uint8_t *p, uT *&ev, iT *&iv) {
+    iv = reinterpret_cast<iT*>(p+_GetEv(p, ev));
+    reg.IP += sizeof(iT);
   }
   void MOVEbGb(uint8_t *p) {
     uint8_t *eb, *gb;
@@ -800,19 +903,14 @@ private:
     reg.IP += 2;
   }
   void MOVEbIb(uint8_t *p) {
-    uint8_t *ev;
-    _GetEv(p, ev);
-    uint8_t &iv = *reinterpret_cast<uint8_t*>(p+2);
-    *ev = iv;
-    reg.IP += 1;
+    uint8_t *ev, *iv;
+    _GetEvIv(p, ev, iv);
+    *ev = *iv;
   }
   void MOVEvIv(uint8_t *p) {
-    // Mem, Imm
-    uint16_t *ev;
-    _GetEv(p, ev);
-    uint16_t &iv = *reinterpret_cast<uint16_t*>(p+3);
-    *ev = iv;
-    reg.IP += 2;
+    uint16_t *ev, *iv;
+    _GetEvIv(p, ev, iv);
+    *ev = *iv;
   }
   void MOVReg16Ib(uint8_t *p, uint8_t &lv) {
     uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
@@ -832,25 +930,41 @@ private:
   }
   void MULEb(uint8_t *p) {
     ModRM& modrm = read_oosssmmm(p);
-    CHECK(modrm.MOD == 0b11);
-    CHECK(modrm.REG == 0b100);
-    uint8_t &rv = GetReg8(modrm.RM);
-    uint16_t rv16 = static_cast<uint16_t>(rv);
-    uint32_t lv16 = static_cast<uint32_t>(reg.AL);
-    reg.AX = lv16 * rv16;
-    reg.set_flag(Flag::ZF, reg.AX == 0);
-    reg.IP += 1;
+    uint8_t *ev;
+    _GetEv(p, ev);
+    uint16_t rv16 = static_cast<uint16_t>(*ev);
+    if (modrm.REG == 0b100) {
+      uint16_t lv16 = static_cast<uint16_t>(reg.AL);
+      reg.AX = lv16 * rv16;
+      reg.set_flag(Flag::ZF, reg.AX == 0);
+    } else {
+      CHECK(modrm.REG == 0b110);
+      uint16_t lv16 = static_cast<uint16_t>(reg.AX);
+      reg.AL = lv16 / rv16;
+      reg.AH = lv16 % rv16;
+      reg.set_flag(Flag::ZF, reg.AL == 0);
+    }
   }
   void MULEv(uint8_t *p) {
+    ModRM& modrm = read_oosssmmm(p);
     uint16_t *ev;
     _GetEv(p, ev);
     uint32_t rv32 = static_cast<uint32_t>(*ev);
-    uint32_t lv32 = static_cast<uint32_t>(reg.AX);
-    lv32 *= rv32;
-    reg.AX = lv32 & 0xFFFF;
-    reg.DX = (lv32 >> 16) & 0xFFFF;
+    if (modrm.REG == 0b100) {
+      uint32_t lv32 = static_cast<uint32_t>(reg.AX);
+      lv32 *= rv32;
+      reg.AX = lv32 & 0xFFFF;
+      reg.DX = (lv32 >> 16) & 0xFFFF;
+      reg.set_flag(Flag::ZF, reg.AX == 0 && reg.DX == 0);
+    } else {
+      CHECK(modrm.REG == 0b110);
+      // DXAX
+      uint32_t dxax = (((uint32_t)reg.DX) << 16) | (((uint32_t)reg.AX) & 0xFFFF);
+      reg.AX = dxax / rv32;
+      reg.DX = dxax % rv32;
+      reg.set_flag(Flag::ZF, reg.AX == 0);
+    }
     // TODO UpdateFlag
-    reg.set_flag(Flag::ZF, reg.AX == 0 && reg.DX == 0);
   }
   void OUTDXAL() {
     switch (reg.DX) {
@@ -872,8 +986,10 @@ private:
   void OUTIbAL(uint8_t *p) {
     uint8_t &lv = *reinterpret_cast<uint8_t*>(p);
     switch (lv) {
+      case 0x20:
       case 0x40:
       case 0x43:
+      case 0xa0:
         break;
       default:
         LOG(FATAL) << "NotImplemented: out Ib, al - Ib: " << hex2str(lv) << " AL: " << hex2str(reg.AL);
@@ -939,11 +1055,15 @@ private:
   }
   void RET() {
     POPw(reg.IP);
+    cout << "=====RET" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << " = " << hex2str(reg.IP - 0x7e00) << endl; 
+    reg.IP -= 1; // cancel +1 in the end
   }
   void IRET() {
     POPw(reg.IP);
     POPw(reg.CS);
     POPw(reg.FR);
+    cout << "=====OOO:" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << endl; 
+    reg.IP -= 1; // cancel +1 in the end
   }
   void REP() {
     rep_mode = true;
@@ -969,17 +1089,35 @@ private:
   }
   void SHEbIb(uint8_t *p) {
     ModRM& modrm = read_oosssmmm(p);
-    CHECK(modrm.MOD == 0b11);
-    uint8_t &lv = GetReg8(modrm.RM);
-    uint8_t &rv = *reinterpret_cast<uint8_t*>(p + 1);
+    uint8_t *ev, *iv;
+    _GetEvIv(p, ev, iv);
     if (modrm.REG == 0b101) {
-      lv >>= rv;
+      (*ev) >>= (*iv);
     } else {
       CHECK(modrm.REG == 0b100);
-      lv <<= rv;
+      (*ev) <<= (*iv);
     }
-    reg.set_flag(Flag::ZF, lv == 0);
-    reg.IP += 2;
+    reg.set_flag(Flag::ZF, (*ev) == 0);
+  }
+  void SHEvIb(uint8_t *p) {
+    ModRM& modrm = read_oosssmmm(p);
+    uint16_t *ev;
+    uint8_t *iv;
+    _GetEvIv(p, ev, iv);
+    switch (modrm.REG) {
+      case 0b100:
+        (*ev) <<= (*iv);
+        break;
+      case 0b101:
+        (*ev) >>= (*iv);
+        break;
+      case 0b111:
+        (*ev) >>= 1;
+        break;
+      default:
+        LOG(FATAL) << "Wrong modrm.REG: " << hex2str(modrm.REG);
+    };
+    reg.set_flag(Flag::ZF, (*ev) == 0);
   }
   void STI() {
     reg.set_flag(Flag::IF);
@@ -1014,6 +1152,44 @@ private:
     _GetEvGv(p, ev, gv);
     reg.set_flag(Flag::ZF, ((*ev) & (*gv)) == 0);
   }
+  void _MOVZX(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *ev = *gv;
+  }
+  void TWOBYTE(uint8_t *p) {
+    // if (*p == 0xb7) cout << "AAA:" << hex2str(reg.IP) << endl;
+    switch (*p) {
+      case 0x84:
+        if (reg.get_flag(Flag::ZF))
+          _IPStep(*reinterpret_cast<uint16_t*>(p+1));
+        reg.IP += 3;
+        break;
+      case 0x85:
+        if (!reg.get_flag(Flag::ZF))
+          _IPStep(*reinterpret_cast<uint16_t*>(p+1));
+        reg.IP += 3;
+        break;
+      case 0x8e:
+        if (reg.get_flag(Flag::ZF) || reg.get_flag(Flag::CF))
+          _IPStep(*reinterpret_cast<uint16_t*>(p+1));
+        reg.IP += 3;
+        break;
+      case 0xb7:
+        _MOVZX(p+1);
+        reg.IP += 1;
+        break;
+      default:
+        LOG(FATAL) << "Wrong JZTWOBYTE: " << hex2str(*p);
+    };
+    // if (*p == 0xb7) cout << "BBB:" << hex2str(reg.IP) << endl;
+  }
+  void XOREvGv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    *ev = (*ev) ^ (*gv);
+    reg.set_flag(Flag::ZF, (*ev) == 0);
+  }
 private:
   template<typename T, typename uT>
   uT _ADD(uT dest, uT source) {
@@ -1024,6 +1200,7 @@ private:
     bool pos_source = static_cast<T>(source) >= 0;
     bool overflow = res != 0 && (pos_dest == pos_source) && pos_res != pos_dest;
     reg.set_flag(Flag::OF, overflow);
+    reg.set_flag(Flag::CF, overflow);
     reg.set_flag(Flag::SF, !pos_res);
     return res;
   }
@@ -1136,7 +1313,15 @@ private:
   void KeyBoardINT() {
     switch (reg.AH) {
       case 0x00:
-        reg.AL = gui.get_key();
+        reg.AX = gui.get_key();
+        break;
+      case 0x01:
+        if (gui.check_key()) {
+          reg.unset_flag(Flag::ZF); 
+          reg.AX = gui.get_key();
+        } else {
+          reg.set_flag(Flag::ZF); 
+        }
         break;
       default:
         LOG(FATAL) << "NotImplemented KeyBoardINT: " << hex2str(reg.AH);
@@ -1195,11 +1380,6 @@ private:
     return res;
   }
 private:
-  template <typename T>
-  void UpdateFlag(const T& v) {
-    if (v == 0) reg.set_flag(ZF);
-  }
-private:
   void CallInjectFunc() {
     if (inject_functions.count(reg.IP)) {
       inject_functions[reg.IP]();
@@ -1232,6 +1412,13 @@ private:
     fin.read(ptr, length);
     RET();
   }
+  void PrintHistory() {
+    while (!history.empty()) {
+      cout << hex2str(history.front() - 0x7e00) << ", ";
+      history.pop();
+    }
+    cout << endl;
+  }
 private:
   uint16_t *pre_seg = nullptr;
   bool rep_mode = false;
@@ -1247,5 +1434,6 @@ private:
   time_point last_int08h_time;
   bool use_prefix;
   bool use_32bits_mode;
+  queue<uint16_t> history;
 };
 

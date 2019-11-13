@@ -34,6 +34,7 @@ public:
     KEY_BOARD_MAP['s'] = 0x5000;
     KEY_BOARD_MAP['a'] = 0x4b00;
     KEY_BOARD_MAP['d'] = 0x4d00;
+    cur_key = 0;
   }
   void set_video_addr(void *addr) {
     video_addr = reinterpret_cast<uint8_t*>(addr);
@@ -52,12 +53,17 @@ public:
   }
   uint16_t get_key() {
     unique_lock<mutex> lock(key_mutex);
-    key_cv.wait(lock);
-    return cur_key;
+    key_cv.wait(lock, [&](){return cur_key != 0;});
+    uint16_t key = cur_key;
+    cur_key = 0;
+    return key;
   }
   void set_key(uint16_t key) {
     cur_key = key;
     key_cv.notify_one();
+  }
+  bool check_key() {
+    return cur_key != 0;
   }
 public:
   array<array<uint8_t, 3>, 256> palette;
