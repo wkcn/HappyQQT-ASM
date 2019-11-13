@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <chrono>
 #include <iostream>
 #include <functional>
@@ -69,11 +70,23 @@ public:
     InitIVT();
     last_int08h_time = get_time_now();
     use_prefix = false;
+    InitNum1();
   }
   void InitIVT() {
     for (int i = 0; i < 0x100; ++i) {
       mem.get<uint16_t>(i * 4) = i;
       mem.get<uint16_t>(i * 4 + 2) = 0xFFFF;
+    }
+  }
+  void InitNum1() {
+    for (int i = 0; i < 256; ++i) {
+      int v = i;
+      int c = 0;
+      while (v > 0) {
+        ++c;
+        v &= v - 1;
+      }
+      num_1bits[i] = c;
     }
   }
   void load(const string& filename) {
@@ -93,6 +106,12 @@ public:
   }
   void run() {
     while (1) {
+      CHECK(mem.get(0x7e00+0x2f5f) == 0x66) << hex2str(reg.IP - 0x7e00);
+      /*
+      CHECK(mem.get(0x7e00+0xeca) == 0xe8);
+      CHECK(mem.get(0x7e00+0xecb) == 0xdc);
+      CHECK(mem.get(0x7e00+0xecc) == 0xf4) << hex2str(reg.IP - 0x7e00);
+      */
       uint16_t cc = mem.get<uint16_t>(8*4+2);
       if (rep_mode) {
         if (--reg.CX == 0) {
@@ -104,13 +123,14 @@ public:
       }
 
       history.push(reg.IP);
-      if (history.size() > 100) history.pop();
+      if (history.size() > 500) history.pop();
 
       use_prefix = false;
 
       uint32_t addr = get_addr(reg.CS, reg.IP);
       uint8_t *p = &(mem.get(addr));
-#if 0
+      // if (reg.IP == 0x2f5f + 0x7e00) debug = true;
+if (debug) {
       cout << hex2str(addr - 0x7e00) << " OP:" << hex2str(*p) << endl <<
         " AX:" << hex2str(reg.AX) <<
         " BX:" << hex2str(reg.BX) <<
@@ -126,7 +146,7 @@ public:
         " SS:" << hex2str(reg.SS) <<
         " ES:" << hex2str(reg.ES) <<
         endl;
-#endif
+    }
       switch (*p) {
         case 0x00:
           ADDEbGb(p+1);
@@ -284,8 +304,23 @@ public:
         case 0x35:
           XOReAXIv(p+1);
           break;
+        case 0x36:
+          SetSegPrefix(reg.SS);
+          break;
+        case 0x37:
+          AAA();
+          break;
+        case 0x38:
+          CMPEbGb(p+1);
+          break;
         case 0x39:
           CMPEvGv(p+1);
+          break;
+        case 0x3a:
+          CMPGbEb(p+1);
+          break;
+        case 0x3b:
+          CMPGvEv(p+1);
           break;
         case 0x3c:
           CMPALIb(p+1);
@@ -427,6 +462,18 @@ public:
         case 0x77:
           JA(p+1);
           break;
+        case 0x78:
+          JS(p+1);
+          break;
+        case 0x79:
+          JNS(p+1);
+          break;
+        case 0x7a:
+          JP(p+1);
+          break;
+        case 0x7b:
+          JNP(p+1);
+          break;
         case 0x7c:
           JL(p+1);
           break;
@@ -446,7 +493,10 @@ public:
           ADDEvIv(p+1);
           break;
         case 0x83:
-          SUBEvIb(p+1);
+          ADDSUBEvIb(p+1);
+          break;
+        case 0x84:
+          TESTEbGb(p+1);
           break;
         case 0x85:
           TESTEvGv(p+1);
@@ -629,6 +679,18 @@ public:
     }
   }
 private:
+  void AAA() {
+    if ((reg.AL & 0xf) > 9 || reg.get_flag(Flag::AF)) {
+      reg.AL += 6;
+      reg.AH += 1;
+      reg.set_flag(Flag::AF | Flag::CF);
+    } else {
+      reg.unset_flag(Flag::AF | Flag::CF);
+    }
+    reg.AL &= 0xf;
+    // TOFIX
+    UpdateFlag(reg.AX);
+  }
   void ADDEbGb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
@@ -652,7 +714,7 @@ private:
   void ADDeAXIv(uint8_t *p) {
     uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
     reg.AX = _ADD<int16_t, uint16_t>(reg.AX, rv);
-    reg.IP += 2;
+    reg.IP += use_32bits_mode ? 4 : 2;
   }
   void ADCEbGb(uint8_t *p) {
     uint8_t *eb, *gb;
@@ -693,7 +755,7 @@ private:
   void ANDeAXIv(uint8_t *p) {
     uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
     reg.AX &= rv; 
-    reg.IP += 4;
+    reg.IP += use_32bits_mode ? 4 : 2;
     UpdateFlag(reg.AX);
   }
   void ANDEbGb(uint8_t *p) {
@@ -733,6 +795,25 @@ private:
     lv = _ADD<int8_t, uint8_t>(lv, rv);
     reg.IP += 1;
   }
+  void ADDSUBEvIb(uint8_t *p) {
+    ModRM &modrm = read_oosssmmm(p);
+    uint16_t *ev;
+    uint8_t *iv;
+    _GetEvIv(p, ev, iv);
+    switch (modrm.REG) {
+      case 0b000:
+        *ev = _ADD<int16_t, uint16_t>(*ev, *iv);
+        break;
+      case 0b101:
+        *ev = _SUB<int16_t, uint16_t>(*ev, *iv);
+        break;
+      case 0b111:
+        _SUB<int16_t, uint16_t>(*ev, *iv);
+        break;
+      default:
+        LOG(FATAL) << "Wrong modrm: " << hex2str(modrm);
+    };
+  }
   void BOUNDGvMa(uint8_t *p) {
     // TODO
     reg.IP += 2;
@@ -743,6 +824,8 @@ private:
     uint16_t IPPlus1 = reg.IP + 1;
     PUSHw(IPPlus1);
     reg.IP += *reinterpret_cast<uint16_t*>(p);
+    cout << hex2str(*p) << "#" << hex2str(*(p+1)) << "$" << hex2str(*(p+2)) << "#" << hex2str(*(p+3)) << endl;
+    cout << hex2str(*reinterpret_cast<uint16_t*>(p)) << "~" << hex2str(reg.IP) << endl;
   }
   void CALLF(uint16_t seg, uint16_t offset) {
     PUSHw(reg.CS);
@@ -797,27 +880,42 @@ private:
   void CMPeAXIv(uint8_t *p) {
     uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
     _SUB<int16_t, uint16_t>(reg.AX, rv);
-    reg.IP += 2;
+    reg.IP += use_32bits_mode ? 4 : 2;
   }
   void CMPEbIb(uint8_t *p) {
     uint8_t *ev, *iv;
     _GetEvIv(p, ev, iv);
     _SUB8(*ev, *iv);
   }
+  void CMPEbGb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    _SUB<int8_t, uint8_t>(*eb, *gb);
+  }
   void CMPEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     _SUB8(*ev, *gv);
   }
+  void CMPGbEb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    _SUB<int8_t, uint8_t>(*gb, *eb);
+  }
+  void CMPGvEv(uint8_t *p) {
+    uint16_t *ev, *gv;
+    _GetEvGv(p, ev, gv);
+    _SUB<int16_t, uint16_t>(*gv, *ev);
+  }
   void DAA() {
     // TOFIX
     bool success = false;
-    if ((reg.AL & 0xF) > 9 || reg.get_flag(Flag::AF)) {
+    if ((reg.AL & 0xf) > 9 || reg.get_flag(Flag::AF)) {
       reg.AL += 6;
       reg.set_flag(Flag::AF);
       success = true;
     }
-    if ((((reg.AL >> 4) & 0xF) > 9) || reg.get_flag(Flag::CF)) {
+    if ((((reg.AL >> 4) & 0xf) > 9) || reg.get_flag(Flag::CF)) {
       reg.AL += 0x60; 
       reg.set_flag(Flag::CF);
       success = true;
@@ -830,7 +928,7 @@ private:
   void DAS() {
     // TOFIX
     bool success = false;
-    if ((reg.AL & 0xF) > 9 || reg.get_flag(Flag::AF)) {
+    if ((reg.AL & 0xf) > 9 || reg.get_flag(Flag::AF)) {
       reg.AL -= 6;
       reg.set_flag(Flag::AF);
       success = true;
@@ -859,7 +957,7 @@ private:
       *v = _ADD<int16_t, uint16_t>(*v, 1);
     } else {
       if (modrm.REG != 0b001) PrintHistory();
-      CHECK(modrm.REG == 0b001);
+      CHECK(modrm.REG == 0b001) << hex2str(*p) << "!" << hex2str(reg.CS) << ":" << hex2str(reg.IP);
       *v = _SUB<int16_t, uint16_t>(*v, 1);
     }
   }
@@ -920,6 +1018,26 @@ private:
       _IPStep(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
   }
+  void JS(uint8_t *p) {
+    if (reg.get_flag(Flag::SF))
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+  }
+  void JNS(uint8_t *p) {
+    if (!reg.get_flag(Flag::SF))
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+  }
+  void JP(uint8_t *p) {
+    if (reg.get_flag(Flag::PF))
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+  }
+  void JNP(uint8_t *p) {
+    if (!reg.get_flag(Flag::PF))
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+  }
   void JNG(uint8_t *p) {
     if (reg.get_flag(Flag::ZF) || (reg.get_flag(Flag::SF) != reg.get_flag(Flag::OF)))
       _IPStep(*reinterpret_cast<uint8_t*>(p));
@@ -951,6 +1069,7 @@ private:
   void LEAVE() {
     reg.SP = reg.BP;
     POPw(reg.BP);
+    cout << "LEAVEEE SP: " << hex2str(reg.SP);
   }
   void LEAGvM(uint8_t *p) {
     ModRM& modrm = read_oosssmmm(p);
@@ -1122,8 +1241,10 @@ private:
     reg.IP += 2;
   }
   void MOVeIv(uint8_t *p, uint16_t &lv) {
-    uint16_t& rv = *reinterpret_cast<uint16_t*>(p);
+    uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
     lv = rv;
+    if (reg.IP == 0x7e00+0x350)
+      cout << "SET: " << hex2str(rv) << "!" << hex2str(reg.SI) << endl;
     reg.IP += 2;
   }
   void MOVEbIb(uint8_t *p) {
@@ -1278,8 +1399,9 @@ private:
     POPw(reg.FR);
   }
   void RET() {
+    cout << "POP BEFORE SP:" << hex2str(reg.SP) << " IP:" << hex2str(reg.IP) << endl; 
     POPw(reg.IP);
-    cout << "=====RET" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << " = " << hex2str(reg.IP - 0x7e00) << endl; 
+    cout << "=====RET" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << " = " << hex2str(reg.IP - 0x7e00) << " SP:" << hex2str(reg.SP) << endl; 
     reg.IP -= 1; // cancel +1 in the end
   }
   void IRET() {
@@ -1321,7 +1443,7 @@ private:
   void OReAXIv(uint8_t *p) {
     uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
     reg.AX |= rv;
-    reg.IP += 2;
+    reg.IP += use_32bits_mode ? 4 : 2;
   }
   void REP() {
     rep_mode = true;
@@ -1430,13 +1552,7 @@ private:
   void SUBeAXIv(uint8_t *p) {
     uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
     reg.AX = _SUB<int16_t, uint16_t>(reg.AX, rv);
-    reg.IP += 2;
-  }
-  void SUBEvIb(uint8_t *p) {
-    uint16_t *ev;
-    uint8_t *iv;
-    _GetEvIv(p, ev, iv);
-    *ev = _SUB<int16_t, uint16_t>(*ev, *iv);
+    reg.IP += use_32bits_mode ? 4 : 2;
   }
   void SUBALIb(uint8_t *p) {
     // Acc, Imm
@@ -1444,6 +1560,11 @@ private:
     uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
     lv = _SUB<int8_t, uint8_t>(lv, rv);
     reg.IP += 1;
+  }
+  void TESTEbGb(uint8_t *p) {
+    uint8_t *eb, *gb;
+    _GetEvGv(p, eb, gb);
+    UpdateFlag((*eb) & (*gb));
   }
   void TESTEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
@@ -1461,9 +1582,24 @@ private:
     _GetEvGv<uint8_t, uint16_t>(p, rv, lv);
     *lv = *rv;
   }
+  void _JCNEAR(uint8_t *p) {
+    if (reg.get_flag(Flag::CF))
+      _IPStep(*reinterpret_cast<uint16_t*>(p));
+    reg.IP += 2;
+  }
+  void _JLNEAR(uint8_t *p) {
+    // TOFIX
+    if (!reg.get_flag(Flag::ZF) && (reg.get_flag(Flag::SF) != reg.get_flag(Flag::OF)))
+      _IPStep(*reinterpret_cast<uint16_t*>(p));
+    reg.IP += 2;
+  }
   void TWOBYTE(uint8_t *p) {
     // if (*p == 0xb7) cout << "AAA:" << hex2str(reg.IP) << endl;
     switch (*p) {
+      case 0x82:
+        _JCNEAR(p+1);
+        reg.IP += 1;
+        break;
       case 0x84:
         if (reg.get_flag(Flag::ZF))
           _IPStep(*reinterpret_cast<uint16_t*>(p+1));
@@ -1473,6 +1609,10 @@ private:
         if (!reg.get_flag(Flag::ZF))
           _IPStep(*reinterpret_cast<uint16_t*>(p+1));
         reg.IP += 3;
+        break;
+      case 0x8c:
+        _JLNEAR(p+1);
+        reg.IP += 1;
         break;
       case 0x8e:
         if (reg.get_flag(Flag::ZF) || reg.get_flag(Flag::CF))
@@ -1527,7 +1667,7 @@ private:
     uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
     reg.AX ^= rv;
     UpdateFlag(reg.AX);
-    reg.IP += 2;
+    reg.IP += use_32bits_mode ? 4 : 2;
   }
 private:
   template<typename T, typename uT>
@@ -1582,6 +1722,7 @@ private:
     T w = 1 << (sizeof(T)*8-1);
     reg.set_flag(Flag::ZF, v == 0);
     reg.set_flag(Flag::SF, v & w);
+    reg.set_flag(Flag::PF, num_1bits[v & 0xff] % 2);
   }
   uint16_t& GetSeg16(const uint8_t REG) {
     switch (REG) {
@@ -1784,6 +1925,7 @@ private:
   uint16_t rep_CS, rep_IP; 
   uint16_t rep_next_cs, rep_next_ip;
 private:
+  bool debug = false;
   Registers reg;
   Memory mem;
   GUI gui;
@@ -1794,5 +1936,6 @@ private:
   bool use_prefix;
   bool use_32bits_mode;
   queue<uint16_t> history;
+  array<uint8_t, 256> num_1bits;
 };
 
