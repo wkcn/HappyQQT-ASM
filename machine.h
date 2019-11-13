@@ -170,6 +170,9 @@ public:
         case 0x24:
           ANDALIb(p+1);
           break;
+        case 0x25:
+          ANDeAXIv(p+1);
+          break;
         case 0x28:
           SUBEbGb(p+1);
           break;
@@ -331,11 +334,20 @@ public:
         case 0x76:
           JNA(p+1);
           break;
+        case 0x77:
+          JA(p+1);
+          break;
+        case 0x7c:
+          JL(p+1);
+          break;
         case 0x7d:
           JNL(p+1);
           break;
         case 0x7e:
           JNG(p+1);
+          break;
+        case 0x7f:
+          JG(p+1);
           break;
         case 0x80:
           CMPEbIb(p+1);
@@ -558,7 +570,13 @@ private:
     uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
     lv &= rv;
     reg.IP += 1;
-    reg.set_flag(Flag::ZF, lv == 0);
+    UpdateFlag(lv);
+  }
+  void ANDeAXIv(uint8_t *p) {
+    uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
+    reg.AX &= rv; 
+    reg.IP += 4;
+    UpdateFlag(reg.AX);
   }
   void ADDEvIv(uint8_t *p) {
     // Mem, Imm
@@ -714,13 +732,30 @@ private:
       _IPStep(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
   }
+  void JA(uint8_t *p) {
+    if (!reg.get_flag(Flag::ZF | Flag::CF))
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+  }
   void JNG(uint8_t *p) {
-    if (reg.get_flag(Flag::ZF | Flag::CF))
+    if (reg.get_flag(Flag::ZF) || (reg.get_flag(Flag::SF) != reg.get_flag(Flag::OF)))
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+  }
+  void JG(uint8_t *p) {
+    if (!reg.get_flag(Flag::ZF) && (reg.get_flag(Flag::SF) == reg.get_flag(Flag::OF)))
       _IPStep(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
   }
   void JNL(uint8_t *p) {
-    if (reg.get_flag(Flag::ZF) || !reg.get_flag(Flag::CF))
+    // TOFIX
+    if (reg.get_flag(Flag::ZF) || reg.get_flag(Flag::SF) == reg.get_flag(Flag::OF))
+      _IPStep(*reinterpret_cast<uint8_t*>(p));
+    reg.IP += 1;
+  }
+  void JL(uint8_t *p) {
+    // TOFIX
+    if (!reg.get_flag(Flag::ZF) && (reg.get_flag(Flag::SF) != reg.get_flag(Flag::OF)))
       _IPStep(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
   }
@@ -824,6 +859,11 @@ private:
   }
   template <typename uT>
   void _GetEvGv(uint8_t *p, uT *&ev, uT *&gv) {
+    _GetGv_nostep(p, gv);
+    _GetEv(p, ev);
+  }
+  template <typename eT, typename gT>
+  void _GetEvGv(uint8_t *p, eT *&ev, gT *&gv) {
     _GetGv_nostep(p, gv);
     _GetEv(p, ev);
   }
@@ -936,13 +976,13 @@ private:
     if (modrm.REG == 0b100) {
       uint16_t lv16 = static_cast<uint16_t>(reg.AL);
       reg.AX = lv16 * rv16;
-      reg.set_flag(Flag::ZF, reg.AX == 0);
+      UpdateFlag(reg.AX);
     } else {
       CHECK(modrm.REG == 0b110);
       uint16_t lv16 = static_cast<uint16_t>(reg.AX);
       reg.AL = lv16 / rv16;
       reg.AH = lv16 % rv16;
-      reg.set_flag(Flag::ZF, reg.AL == 0);
+      UpdateFlag(reg.AL);
     }
   }
   void MULEv(uint8_t *p) {
@@ -955,14 +995,14 @@ private:
       lv32 *= rv32;
       reg.AX = lv32 & 0xFFFF;
       reg.DX = (lv32 >> 16) & 0xFFFF;
-      reg.set_flag(Flag::ZF, reg.AX == 0 && reg.DX == 0);
+      UpdateFlag(lv32);
     } else {
       CHECK(modrm.REG == 0b110);
       // DXAX
       uint32_t dxax = (((uint32_t)reg.DX) << 16) | (((uint32_t)reg.AX) & 0xFFFF);
       reg.AX = dxax / rv32;
       reg.DX = dxax % rv32;
-      reg.set_flag(Flag::ZF, reg.AX == 0);
+      UpdateFlag(reg.AX);
     }
     // TODO UpdateFlag
   }
@@ -1084,7 +1124,7 @@ private:
       CHECK(modrm.REG == 0b100);
       lv <<= 1;
     }
-    reg.set_flag(Flag::ZF, lv == 0);
+    UpdateFlag(lv);
     reg.IP += 1;
   }
   void SHEbIb(uint8_t *p) {
@@ -1097,7 +1137,7 @@ private:
       CHECK(modrm.REG == 0b100);
       (*ev) <<= (*iv);
     }
-    reg.set_flag(Flag::ZF, (*ev) == 0);
+    UpdateFlag(*ev);
   }
   void SHEvIb(uint8_t *p) {
     ModRM& modrm = read_oosssmmm(p);
@@ -1117,7 +1157,7 @@ private:
       default:
         LOG(FATAL) << "Wrong modrm.REG: " << hex2str(modrm.REG);
     };
-    reg.set_flag(Flag::ZF, (*ev) == 0);
+    UpdateFlag(*ev);
   }
   void STI() {
     reg.set_flag(Flag::IF);
@@ -1150,12 +1190,18 @@ private:
   void TESTEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
-    reg.set_flag(Flag::ZF, ((*ev) & (*gv)) == 0);
+    UpdateFlag((*ev) & (*gv));
   }
-  void _MOVZX(uint8_t *p) {
+  void _MOVZXw(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *ev = *gv;
+  }
+  void _MOVZXb(uint8_t *p) {
+    uint16_t *lv;
+    uint8_t *rv;
+    _GetEvGv<uint8_t, uint16_t>(p, rv, lv);
+    *lv = *rv;
   }
   void TWOBYTE(uint8_t *p) {
     // if (*p == 0xb7) cout << "AAA:" << hex2str(reg.IP) << endl;
@@ -1175,8 +1221,12 @@ private:
           _IPStep(*reinterpret_cast<uint16_t*>(p+1));
         reg.IP += 3;
         break;
+      case 0xb6:
+        _MOVZXb(p+1);
+        reg.IP += 1;
+        break;
       case 0xb7:
-        _MOVZX(p+1);
+        _MOVZXw(p+1);
         reg.IP += 1;
         break;
       default:
@@ -1188,33 +1238,31 @@ private:
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *ev = (*ev) ^ (*gv);
-    reg.set_flag(Flag::ZF, (*ev) == 0);
+    UpdateFlag(*ev);
   }
 private:
   template<typename T, typename uT>
   uT _ADD(uT dest, uT source) {
     uT res = dest + source;
-    reg.set_flag(Flag::ZF, res == 0);
     bool pos_res = static_cast<T>(res) >= 0;
     bool pos_dest = static_cast<T>(dest) >= 0;
     bool pos_source = static_cast<T>(source) >= 0;
     bool overflow = res != 0 && (pos_dest == pos_source) && pos_res != pos_dest;
     reg.set_flag(Flag::OF, overflow);
     reg.set_flag(Flag::CF, overflow);
-    reg.set_flag(Flag::SF, !pos_res);
+    UpdateFlag(res);
     return res;
   }
   template<typename T, typename uT>
   uT _SUB(uT dest, uT source) {
     uT res = dest - source;
-    reg.set_flag(Flag::ZF, res == 0);
     reg.set_flag(Flag::CF, dest < source);
     bool pos_res = static_cast<T>(res) >= 0;
     bool pos_dest = static_cast<T>(dest) >= 0;
     bool pos_source = static_cast<T>(source) >= 0;
     bool overflow = res != 0 && (pos_dest != pos_source) && pos_res != pos_dest;
     reg.set_flag(Flag::OF, overflow);
-    reg.set_flag(Flag::SF, !pos_res);
+    UpdateFlag(res);
     return res;
   }
 private:
@@ -1224,6 +1272,12 @@ private:
     return *reinterpret_cast<ModRM*>(p);
   }
 private:
+  template <typename T>
+  void UpdateFlag(T v) {
+    T w = 1 << (sizeof(T)*8-1);
+    reg.set_flag(Flag::ZF, v == 0);
+    reg.set_flag(Flag::SF, v & w);
+  }
   uint16_t& GetSeg16(const uint8_t REG) {
     switch (REG) {
       case 0:
