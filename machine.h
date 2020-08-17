@@ -103,6 +103,12 @@ public:
     uint16_t base_addr = 0x7e00;
     mem.get(base_addr + 0x17d) = INJECT_FUNC_CODE;
     inject_functions[base_addr + 0x17d] = std::bind(&Machine::ReadFloppy, this);
+    // 0x3152 is the function Update
+    mem.get(base_addr + 0x3152) = INJECT_FUNC_CODE;
+    inject_functions[base_addr + 0x3152] = std::bind(&Machine::QQTUpdate, this);
+    // 0x3276 is the function AI
+    mem.get(base_addr + 0x3276) = INJECT_FUNC_CODE;
+    inject_functions[base_addr + 0x3276] = std::bind(&Machine::QQTAI, this);
   }
   void run() {
     while (1) {
@@ -122,7 +128,7 @@ public:
         }
       }
 
-      history.push(reg.IP);
+      // history.push(reg.IP);
       if (history.size() > 500) history.pop();
 
       use_prefix = false;
@@ -130,6 +136,16 @@ public:
       uint32_t addr = get_addr(reg.CS, reg.IP);
       uint8_t *p = &(mem.get(addr));
       // if (reg.IP == 0x152 + 0x7e00) debug = true;
+      //
+      {
+        int id = 8;
+        uint16_t &offset = mem.get<uint16_t>(id * 4);
+        uint16_t &seg = mem.get<uint16_t>(id * 4 + 2);
+        if (offset == 0 && seg != 0x8cbd) { 
+          PrintState();
+          LOG(FATAL) << "OH NO";
+        }
+      }
       if (debug)
         cin.get();
       switch (*p) {
@@ -422,7 +438,8 @@ public:
           BOUNDGvMa(p+1);
           break;
         case 0x66:
-          LOG(FATAL) << "Does not support x86";
+          PrintState();
+          LOG(FATAL) << "Does not support x86 Instruction";
           Set32bPrefix();
           break;
         case 0x67:
@@ -634,6 +651,9 @@ public:
         case 0xfb:
           STI();
           break;
+        case 0xfe:
+          INC(reg.AH);
+          break;
         case 0xff:
           INCDECw(p+1);
           break;
@@ -652,7 +672,7 @@ public:
           }
           last_int08h_time = cur_time;
           cout << "Speed: " << float(run_count) * 1000 / diff_ms / (1024 * 1024 * 1024) << " GHz, " <<
-            "CS:IP = " << hex2str(reg.CS) << ":" << hex2str(reg.IP) << endl;
+            "CS:IP = " << hex2str(reg.CS) << ":" << hex2str(reg.IP) << "  " << hex2str(reg.IP - 0x7e00) << endl;
           run_count = 0;
         }
       }
@@ -669,8 +689,14 @@ public:
         use_32bits_mode = false;
       }
 
-      if (debug) {
-        PrintState();
+      // debug_count = 1;
+      if (debug_count > 0) {
+          PrintState();
+          --debug_count;
+      } else {
+        if (debug) {
+          PrintState();
+        }
       }
 
     }
@@ -836,11 +862,11 @@ private:
     if (!reg.get_flag(Flag::IF)) {
       return false;
     }
-    cout << "CALL INT: " << id << endl;
-    PrintState();
+    // cout << "CALL INT: " << id << endl;
+    // PrintState();
     uint16_t &offset = mem.get<uint16_t>(id * 4);
     uint16_t &seg = mem.get<uint16_t>(id * 4 + 2);
-    // cout << "=====III" << id << "|" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << endl; 
+    // cout << "=====III" << id << "|" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << "!" << hex2str(seg) << ", " << hex2str(offset) << endl; 
     PUSHF();
     reg.unset_flag(Flag::IF);
     if (seg == 0xFFFF) {
@@ -953,6 +979,9 @@ private:
   }
   void INC(uint16_t &lv) {
     lv = _ADD<int16_t, uint16_t>(lv, 1);
+  }
+  void INC(uint8_t &lv) {
+    lv = _ADD<int8_t, uint8_t>(lv, 1);
   }
   void INCDECw(uint8_t *p) {
     ModRM &modrm = read_oosssmmm(p);
@@ -1150,20 +1179,20 @@ private:
   int _GetEv(uint8_t *p, uT *&ev) {
     // MOD, RM
     ModRM &modrm = read_oosssmmm(p);
-    if (modrm.MOD == 0b11) {
-      ev = &GetReg<uT>(modrm.RM);
-      // Reg, Reg
-      reg.IP += 1;
-      return 1;
+    if (pre_seg) {
+      // Mem, Reg
+      uint16_t offset;
+      int ip_update = _GetSegAndOffset(p, offset);
+      CHECK(pre_seg);
+      uint32_t addr = get_addr(*pre_seg, offset);
+      pre_seg = nullptr;
+      ev = &mem.get<uT>(addr);
+      return ip_update; 
     }
-    // Mem, Reg
-    uint16_t offset;
-    int ip_update = _GetSegAndOffset(p, offset);
-    CHECK(pre_seg);
-    uint32_t addr = get_addr(*pre_seg, offset);
-    pre_seg = nullptr;
-    ev = &mem.get<uT>(addr);
-    return ip_update; 
+    CHECK_EQ(modrm.MOD, 0b11);
+    ev = &GetReg<uT>(modrm.RM);
+    reg.IP += 1;
+    return 1;
   }
   template <typename uT>
   void _GetEvGv(uint8_t *p, uT *&ev, uT *&gv) {
@@ -1416,8 +1445,8 @@ private:
     POPw(reg.CS);
     POPw(reg.FR);
     reg.IP -= 1; // cancel +1 in the end
-    cout << "IRET:::" << endl;
-    PrintState();
+    // cout << "IRET:::" << endl;
+    // PrintState();
   }
   void OREbGb(uint8_t *p) {
     uint8_t *eb, *gb;
@@ -1920,6 +1949,25 @@ private:
     fin.read(ptr, length);
     RET();
   }
+  void QQTUpdate() {
+    // debug_count = INT32_MAX;
+    cout << "QQT Update" << endl;
+    PrintState();
+    RET();
+    uint8_t zero;
+    POPb(zero);
+    CHECK_EQ(zero, 0);
+    cout << "QQT OVER" << endl;
+    PrintState();
+  }
+  void QQTAI() {
+    cout << "QQT AI" << endl;
+    RET();
+    uint8_t zero;
+    POPb(zero);
+    CHECK_EQ(zero, 0);
+  }
+private:
   void PrintHistory() {
     while (!history.empty()) {
       cout << hex2str(history.front() - 0x7e00) << ", ";
@@ -1954,6 +2002,7 @@ private:
   uint16_t rep_next_cs, rep_next_ip;
 private:
   bool debug = false;
+  int debug_count = 0;
   Registers reg;
   Memory mem;
   GUI gui;
