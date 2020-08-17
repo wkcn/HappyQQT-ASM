@@ -106,7 +106,7 @@ public:
   }
   void run() {
     while (1) {
-      CHECK(mem.get(0x7e00+0x2f5f) == 0x66) << hex2str(reg.IP - 0x7e00);
+      // CHECK(mem.get(0x7e00+0x2f5f) == 0x66) << hex2str(reg.IP - 0x7e00);
       /*
       CHECK(mem.get(0x7e00+0xeca) == 0xe8);
       CHECK(mem.get(0x7e00+0xecb) == 0xdc);
@@ -129,24 +129,9 @@ public:
 
       uint32_t addr = get_addr(reg.CS, reg.IP);
       uint8_t *p = &(mem.get(addr));
-      // if (reg.IP == 0x2f5f + 0x7e00) debug = true;
-if (debug) {
-      cout << hex2str(addr - 0x7e00) << " OP:" << hex2str(*p) << endl <<
-        " AX:" << hex2str(reg.AX) <<
-        " BX:" << hex2str(reg.BX) <<
-        " CX:" << hex2str(reg.CX) <<
-        " DX:" << hex2str(reg.DX) <<
-        " SP:" << hex2str(reg.SP) <<
-        " BP:" << hex2str(reg.BP) <<
-        " SI:" << hex2str(reg.SI) <<
-        " DI:" << hex2str(reg.DI) <<
-        endl <<
-        " CS:" << hex2str(reg.CS) <<
-        " DS:" << hex2str(reg.DS) <<
-        " SS:" << hex2str(reg.SS) <<
-        " ES:" << hex2str(reg.ES) <<
-        endl;
-    }
+      // if (reg.IP == 0x152 + 0x7e00) debug = true;
+      if (debug)
+        cin.get();
       switch (*p) {
         case 0x00:
           ADDEbGb(p+1);
@@ -437,6 +422,7 @@ if (debug) {
           BOUNDGvMa(p+1);
           break;
         case 0x66:
+          LOG(FATAL) << "Does not support x86";
           Set32bPrefix();
           break;
         case 0x67:
@@ -642,6 +628,9 @@ if (debug) {
         case 0xf7:
           MULEv(p+1);
           break;
+        case 0xfa:
+          CLI();
+          break;
         case 0xfb:
           STI();
           break;
@@ -653,6 +642,7 @@ if (debug) {
           LOG(FATAL) << "Unknown OpCode: [" << hex2str(reg.CS) << ":" << hex2str(reg.IP) << "=" << hex2str(addr - 0x7e00) << "]" << hex2str(*p);
       }
 
+      ++run_count;
       if (!use_prefix && !rep_mode) {
         time_point cur_time = get_time_now();
         int diff_ms = std::chrono::duration_cast<milliseconds>(cur_time - last_int08h_time).count();
@@ -661,6 +651,9 @@ if (debug) {
             reg.IP -= 1;
           }
           last_int08h_time = cur_time;
+          cout << "Speed: " << float(run_count) * 1000 / diff_ms / (1024 * 1024 * 1024) << " GHz, " <<
+            "CS:IP = " << hex2str(reg.CS) << ":" << hex2str(reg.IP) << endl;
+          run_count = 0;
         }
       }
 
@@ -674,6 +667,10 @@ if (debug) {
           }
         }
         use_32bits_mode = false;
+      }
+
+      if (debug) {
+        PrintState();
       }
 
     }
@@ -819,13 +816,13 @@ private:
     reg.IP += 2;
   }
   void CALL(uint8_t *p) {
-    cout << "=====CCC" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << " = " << hex2str(reg.IP - 0x7e00) << " SP: " << hex2str(reg.SP) << endl; 
+    // cout << "=====CCC" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << " = " << hex2str(reg.IP - 0x7e00) << " SP: " << hex2str(reg.SP) << endl; 
     reg.IP += use_32bits_mode ? 4 : 2;
     uint16_t IPPlus1 = reg.IP + 1;
     PUSHw(IPPlus1);
     reg.IP += *reinterpret_cast<uint16_t*>(p);
-    cout << hex2str(*p) << "#" << hex2str(*(p+1)) << "$" << hex2str(*(p+2)) << "#" << hex2str(*(p+3)) << endl;
-    cout << hex2str(*reinterpret_cast<uint16_t*>(p)) << "~" << hex2str(reg.IP) << endl;
+    // cout << hex2str(*p) << "#" << hex2str(*(p+1)) << "$" << hex2str(*(p+2)) << "#" << hex2str(*(p+3)) << endl;
+    // cout << hex2str(*reinterpret_cast<uint16_t*>(p)) << "~" << hex2str(reg.IP) << endl;
   }
   void CALLF(uint16_t seg, uint16_t offset) {
     PUSHw(reg.CS);
@@ -835,10 +832,15 @@ private:
     reg.IP = offset;
   }
   bool CALL_INT(uint16_t id) {
-    if (!reg.get_flag(Flag::IF)) return false;
+    // if (id == 8) return false;
+    if (!reg.get_flag(Flag::IF)) {
+      return false;
+    }
+    cout << "CALL INT: " << id << endl;
+    PrintState();
     uint16_t &offset = mem.get<uint16_t>(id * 4);
     uint16_t &seg = mem.get<uint16_t>(id * 4 + 2);
-    cout << "=====III" << id << "|" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << endl; 
+    // cout << "=====III" << id << "|" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << endl; 
     PUSHF();
     reg.unset_flag(Flag::IF);
     if (seg == 0xFFFF) {
@@ -869,6 +871,9 @@ private:
         LOG(FATAL) << "NotImplemented INT: " << hex2str(id) << " In " << hex2str(reg.CS) << ":" << hex2str(reg.IP);
     };
     IRET();
+  }
+  void CLI() {
+    reg.unset_flag(Flag::IF);
   }
   inline uint8_t _SUB8(uint8_t dest, uint8_t source) {
     return _SUB<int8_t, uint8_t>(dest, source);
@@ -1069,7 +1074,7 @@ private:
   void LEAVE() {
     reg.SP = reg.BP;
     POPw(reg.BP);
-    cout << "LEAVEEE SP: " << hex2str(reg.SP);
+    // cout << "LEAVEEE SP: " << hex2str(reg.SP);
   }
   void LEAGvM(uint8_t *p) {
     ModRM& modrm = read_oosssmmm(p);
@@ -1243,8 +1248,10 @@ private:
   void MOVeIv(uint8_t *p, uint16_t &lv) {
     uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
     lv = rv;
+    /*
     if (reg.IP == 0x7e00+0x350)
       cout << "SET: " << hex2str(rv) << "!" << hex2str(reg.SI) << endl;
+    */
     reg.IP += 2;
   }
   void MOVEbIb(uint8_t *p) {
@@ -1399,17 +1406,18 @@ private:
     POPw(reg.FR);
   }
   void RET() {
-    cout << "POP BEFORE SP:" << hex2str(reg.SP) << " IP:" << hex2str(reg.IP) << endl; 
+    // cout << "POP BEFORE SP:" << hex2str(reg.SP) << " IP:" << hex2str(reg.IP) << endl; 
     POPw(reg.IP);
-    cout << "=====RET" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << " = " << hex2str(reg.IP - 0x7e00) << " SP:" << hex2str(reg.SP) << endl; 
+    // cout << "=====RET" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << " = " << hex2str(reg.IP - 0x7e00) << " SP:" << hex2str(reg.SP) << endl; 
     reg.IP -= 1; // cancel +1 in the end
   }
   void IRET() {
     POPw(reg.IP);
     POPw(reg.CS);
     POPw(reg.FR);
-    cout << "=====OOO:" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << endl; 
     reg.IP -= 1; // cancel +1 in the end
+    cout << "IRET:::" << endl;
+    PrintState();
   }
   void OREbGb(uint8_t *p) {
     uint8_t *eb, *gb;
@@ -1904,7 +1912,7 @@ private:
     cout << "Read " << filename << endl;
     filename = "./game/build/" + filename;
     ifstream fin(filename, ifstream::binary);
-    CHECK(fin);
+    CHECK(fin) << filename;
     fin.seekg(0, fin.end);
     int length = fin.tellg();
     fin.seekg(0, fin.beg);
@@ -1918,6 +1926,26 @@ private:
       history.pop();
     }
     cout << endl;
+  }
+  void PrintState() {
+    uint32_t addr = get_addr(reg.CS, reg.IP);
+    uint8_t *p = &(mem.get(addr));
+    cout << hex2str(addr - 0x7e00) << " OP:" << hex2str(*p) << endl <<
+      " AX:" << hex2str(reg.AX) <<
+      " BX:" << hex2str(reg.BX) <<
+      " CX:" << hex2str(reg.CX) <<
+      " DX:" << hex2str(reg.DX) <<
+      " SP:" << hex2str(reg.SP) <<
+      " BP:" << hex2str(reg.BP) <<
+      " SI:" << hex2str(reg.SI) <<
+      " DI:" << hex2str(reg.DI) <<
+      endl <<
+      " CS:" << hex2str(reg.CS) <<
+      " DS:" << hex2str(reg.DS) <<
+      " SS:" << hex2str(reg.SS) <<
+      " ES:" << hex2str(reg.ES) <<
+      " IP:" << hex2str(reg.IP) <<
+      endl;
   }
 private:
   uint16_t *pre_seg = nullptr;
@@ -1937,5 +1965,6 @@ private:
   bool use_32bits_mode;
   queue<uint16_t> history;
   array<uint8_t, 256> num_1bits;
+  int run_count = 0;
 };
 
