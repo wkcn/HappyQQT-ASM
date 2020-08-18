@@ -112,6 +112,14 @@ public:
   }
   void run() {
     while (1) {
+      /*
+      static uint16_t old_SP = 0;
+      if (old_SP != reg.SP) {
+        cout << "NEW SP: " << hex2str(reg.SP) << endl;
+        PrintState();
+        old_SP = reg.SP;
+      }
+      */
       // CHECK(mem.get(0x7e00+0x2f5f) == 0x66) << hex2str(reg.IP - 0x7e00);
       /*
       CHECK(mem.get(0x7e00+0xeca) == 0xe8);
@@ -128,7 +136,7 @@ public:
         }
       }
 
-      // history.push(reg.IP);
+      history.push(reg.IP);
       if (history.size() > 500) history.pop();
 
       use_prefix = false;
@@ -493,7 +501,7 @@ public:
           CMPEbIb(p+1);
           break;
         case 0x81:
-          ADDEvIv(p+1);
+          MultiEvIv(p+1);
           break;
         case 0x83:
           ADDSUBEvIb(p+1);
@@ -528,8 +536,14 @@ public:
         case 0x90:
           // nop
           break;
+        case 0xa0:
+          MOVALOb(p+1);
+          break;
         case 0xa1:
           MOVeAXOv(p+1);
+          break;
+        case 0xa2:
+          MOVObAL(p+1);
           break;
         case 0xa3:
           MOVOveAX(p+1);
@@ -652,7 +666,7 @@ public:
           STI();
           break;
         case 0xfe:
-          INC(reg.AH);
+          INCDECb(p+1);
           break;
         case 0xff:
           INCDECw(p+1);
@@ -671,8 +685,10 @@ public:
             reg.IP -= 1;
           }
           last_int08h_time = cur_time;
+          /*
           cout << "Speed: " << float(run_count) * 1000 / diff_ms / (1024 * 1024 * 1024) << " GHz, " <<
             "CS:IP = " << hex2str(reg.CS) << ":" << hex2str(reg.IP) << "  " << hex2str(reg.IP - 0x7e00) << endl;
+          */
           run_count = 0;
         }
       }
@@ -689,6 +705,18 @@ public:
         use_32bits_mode = false;
       }
 
+      // edb, ef4, efc, eff
+      // fail: f02, f05, f08, f0e, f3b
+      if (reg.IP == 0x7e00 + 0xf02) {
+        cout << "OVER";
+        debug_count = 20;
+        end_count = 20;
+      }
+      if (end_count > 0) {
+        if (--end_count == 0) {
+          // LOG(FATAL) << "OVER";
+        }
+      }
       // debug_count = 1;
       if (debug_count > 0) {
           PrintState();
@@ -805,11 +833,28 @@ private:
     *gv &= *ev;
     UpdateFlag(*gv);
   }
-  void ADDEvIv(uint8_t *p) {
+  void MultiEvIv(uint8_t *p) {
     // Mem, Imm
     uint16_t *ev, *iv;
     _GetEvIv(p, ev, iv);
-    *ev = _ADD<int16_t, uint16_t>(*ev, *iv);
+    ModRM &modrm = read_oosssmmm(p);
+    switch (modrm.REG) {
+      case 0b000:
+        // add
+        *ev = _ADD<int16_t, uint16_t>(*ev, *iv);
+        break;
+      case 0b100:
+        // and
+        *ev &= *iv;
+        UpdateFlag(*ev);
+        break;
+      case 0b111:
+        // cmp
+        _SUB<int16_t, uint16_t>(*ev, *iv);
+        break;
+      default:
+        LOG(FATAL) << "Not supported " << hex2str(modrm.REG);
+    }
   }
   void ADDALIb(uint8_t *p) {
     // Acc, Imm
@@ -827,13 +872,21 @@ private:
       case 0b000:
         *ev = _ADD<int16_t, uint16_t>(*ev, *iv);
         break;
+      case 0b100:
+        *ev = _AND<int16_t, uint16_t>(*ev, *iv);
+        break;
       case 0b101:
         *ev = _SUB<int16_t, uint16_t>(*ev, *iv);
+        break;
+      case 0b010:
+        *ev = _ADD<int16_t, uint16_t>(*ev, *iv, reg.get_flag(Flag::CF));
         break;
       case 0b111:
         _SUB<int16_t, uint16_t>(*ev, *iv);
         break;
       default:
+        PrintState();
+        PrintHistory();
         LOG(FATAL) << "Wrong modrm: " << hex2str(modrm);
     };
   }
@@ -862,8 +915,8 @@ private:
     if (!reg.get_flag(Flag::IF)) {
       return false;
     }
-    // cout << "CALL INT: " << id << endl;
-    // PrintState();
+    cout << "CALL INT: " << id << endl;
+    PrintState();
     uint16_t &offset = mem.get<uint16_t>(id * 4);
     uint16_t &seg = mem.get<uint16_t>(id * 4 + 2);
     // cout << "=====III" << id << "|" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << "!" << hex2str(seg) << ", " << hex2str(offset) << endl; 
@@ -982,6 +1035,18 @@ private:
   }
   void INC(uint8_t &lv) {
     lv = _ADD<int8_t, uint8_t>(lv, 1);
+  }
+  void INCDECb(uint8_t *p) {
+    ModRM &modrm = read_oosssmmm(p);
+    uint8_t *v;
+    _GetEv(p, v);
+    if (modrm.REG == 0b000) {
+      *v = _ADD<int8_t, uint8_t>(*v, 1);
+    } else {
+      if (modrm.REG != 0b001) PrintHistory();
+      CHECK(modrm.REG == 0b001) << hex2str(*p) << "!" << hex2str(reg.CS) << ":" << hex2str(reg.IP);
+      *v = _SUB<int8_t, uint8_t>(*v, 1);
+    }
   }
   void INCDECw(uint8_t *p) {
     ModRM &modrm = read_oosssmmm(p);
@@ -1179,20 +1244,19 @@ private:
   int _GetEv(uint8_t *p, uT *&ev) {
     // MOD, RM
     ModRM &modrm = read_oosssmmm(p);
-    if (pre_seg) {
-      // Mem, Reg
-      uint16_t offset;
-      int ip_update = _GetSegAndOffset(p, offset);
-      CHECK(pre_seg);
-      uint32_t addr = get_addr(*pre_seg, offset);
-      pre_seg = nullptr;
-      ev = &mem.get<uT>(addr);
-      return ip_update; 
+    if (modrm.MOD == 0b11) {
+      ev = &GetReg<uT>(modrm.RM);
+      reg.IP += 1;
+      return 1;
     }
-    CHECK_EQ(modrm.MOD, 0b11);
-    ev = &GetReg<uT>(modrm.RM);
-    reg.IP += 1;
-    return 1;
+    // Mem, Reg
+    uint16_t offset;
+    int ip_update = _GetSegAndOffset(p, offset);
+    CHECK(pre_seg);
+    uint32_t addr = get_addr(*pre_seg, offset);
+    pre_seg = nullptr;
+    ev = &mem.get<uT>(addr);
+    return ip_update; 
   }
   template <typename uT>
   void _GetEvGv(uint8_t *p, uT *&ev, uT *&gv) {
@@ -1252,6 +1316,28 @@ private:
     uint16_t &rv = GetReg16(modrm.RM);
     lv = rv;
     reg.IP += 1;
+  }
+  void MOVALOb(uint8_t *p) {
+    // Acc, MemOfs
+    uint16_t& offset = *reinterpret_cast<uint16_t*>(p);
+    if (!pre_seg) pre_seg = &reg.DS;
+    uint32_t addr = get_addr(*pre_seg, offset);
+    uint8_t &rv = mem.get<uint8_t>(addr);
+    uint8_t &lv = reg.AL;
+    pre_seg = nullptr;
+    lv = rv;
+    reg.IP += 2;
+  }
+  void MOVObAL(uint8_t *p) {
+    // Acc, MemOfs
+    uint16_t& offset = *reinterpret_cast<uint16_t*>(p);
+    if (!pre_seg) pre_seg = &reg.DS;
+    uint32_t addr = get_addr(*pre_seg, offset);
+    uint8_t &lv = mem.get<uint8_t>(addr);
+    uint8_t &rv = reg.AL;
+    pre_seg = nullptr;
+    lv = rv;
+    reg.IP += 2;
   }
   void MOVeAXOv(uint8_t *p) {
     // Acc, MemOfs
@@ -1445,7 +1531,6 @@ private:
     POPw(reg.CS);
     POPw(reg.FR);
     reg.IP -= 1; // cancel +1 in the end
-    // cout << "IRET:::" << endl;
     // PrintState();
   }
   void OREbGb(uint8_t *p) {
@@ -1736,7 +1821,7 @@ private:
     bool overflow;
     if (borrow && res == 0) {
       overflow = true;
-      res = ~res;
+      res = ~0;
     } else {
       // TOFIX
       if (borrow) res -= 1;
@@ -1744,6 +1829,12 @@ private:
     }
     reg.set_flag(Flag::OF, overflow);
     reg.set_flag(Flag::CF, dest < source);
+    UpdateFlag(res);
+    return res;
+  }
+  template<typename T, typename uT>
+  uT _AND(uT dest, uT source) {
+    uT res = dest & source;
     UpdateFlag(res);
     return res;
   }
@@ -1951,14 +2042,14 @@ private:
   }
   void QQTUpdate() {
     // debug_count = INT32_MAX;
-    cout << "QQT Update" << endl;
-    PrintState();
+    // cout << "QQT Update" << endl;
+    // PrintState();
     RET();
     uint8_t zero;
     POPb(zero);
     CHECK_EQ(zero, 0);
-    cout << "QQT OVER" << endl;
-    PrintState();
+    // cout << "QQT OVER" << endl;
+    // PrintState();
   }
   void QQTAI() {
     cout << "QQT AI" << endl;
@@ -2003,6 +2094,7 @@ private:
 private:
   bool debug = false;
   int debug_count = 0;
+  int end_count = -1;
   Registers reg;
   Memory mem;
   GUI gui;
