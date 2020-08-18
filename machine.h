@@ -848,12 +848,16 @@ private:
         *ev &= *iv;
         UpdateFlag(*ev);
         break;
+      case 0b101:
+        // sub
+        *ev = _SUB<int16_t, uint16_t>(*ev, *iv);
+        break;
       case 0b111:
         // cmp
         _SUB<int16_t, uint16_t>(*ev, *iv);
         break;
       default:
-        LOG(FATAL) << "Not supported " << hex2str(modrm.REG);
+        LOG(FATAL) << "Not supported " << hex2str(modrm);
     }
   }
   void ADDALIb(uint8_t *p) {
