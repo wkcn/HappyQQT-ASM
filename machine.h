@@ -985,7 +985,7 @@ private:
   void CMPEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
-    _SUB8(*ev, *gv);
+    _SUB<int16_t, uint16_t>(*ev, *gv);
   }
   void CMPGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
@@ -2061,7 +2061,7 @@ private:
     // PrintState();
   }
   void QQTAI() {
-    cout << "QQT AI" << endl;
+    // cout << "QQT AI" << endl;
     RET();
     uint8_t zero;
     POPb(zero);
