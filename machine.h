@@ -12,7 +12,6 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
-#include <queue>
 using namespace std;
 #include "logging.h"
 #include "register.h"
@@ -145,6 +144,7 @@ public:
       uint8_t *p = &(mem.get(addr));
       // if (reg.IP == 0x152 + 0x7e00) debug = true;
       //
+      /*
       {
         int id = 8;
         uint16_t &offset = mem.get<uint16_t>(id * 4);
@@ -154,6 +154,7 @@ public:
           LOG(FATAL) << "OH NO";
         }
       }
+      */
       if (debug)
         cin.get();
       switch (*p) {
@@ -707,8 +708,7 @@ public:
 
       // edb, ef4, efc, eff
       // fail: f02, f05, f08, f0e, f3b
-      if (reg.IP == 0x7e00 + 0xf02) {
-        cout << "OVER";
+      if (false && reg.IP == 0x7e00 + 0xf02) {
         debug_count = 20;
         end_count = 20;
       }
@@ -915,8 +915,7 @@ private:
     if (!reg.get_flag(Flag::IF)) {
       return false;
     }
-    cout << "CALL INT: " << id << endl;
-    PrintState();
+    // cout << "CALL INT: " << id << endl;
     uint16_t &offset = mem.get<uint16_t>(id * 4);
     uint16_t &seg = mem.get<uint16_t>(id * 4 + 2);
     // cout << "=====III" << id << "|" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << "!" << hex2str(seg) << ", " << hex2str(offset) << endl; 
@@ -940,13 +939,16 @@ private:
       case 0x10:
         ScreenINT();
         break;
-      case 0x16:
-        KeyBoardINT();
-        break;
       case 0x1a:
         ClockINT();
         break;
       default:
+        if (id == 0x16) {
+          bool zf = KeyBoardINT();
+          IRET();
+          reg.set_flag(Flag::ZF, zf);
+          return;
+        }
         LOG(FATAL) << "NotImplemented INT: " << hex2str(id) << " In " << hex2str(reg.CS) << ":" << hex2str(reg.IP);
     };
     IRET();
@@ -1723,8 +1725,9 @@ private:
         reg.IP += 1;
         break;
       case 0x84:
-        if (reg.get_flag(Flag::ZF))
+        if (reg.get_flag(Flag::ZF)) {
           _IPStep(*reinterpret_cast<uint16_t*>(p+1));
+        }
         reg.IP += 3;
         break;
       case 0x85:
@@ -1938,22 +1941,24 @@ private:
         LOG(FATAL) << "NotImplemented ScreenINT: " << hex2str(reg.AH);
     };
   }
-  void KeyBoardINT() {
+  bool KeyBoardINT() {
+    bool zf = reg.get_flag(Flag::ZF);
     switch (reg.AH) {
       case 0x00:
         reg.AX = gui.get_key();
         break;
       case 0x01:
         if (gui.check_key()) {
-          reg.unset_flag(Flag::ZF); 
-          reg.AX = gui.get_key();
+          zf = false;
         } else {
-          reg.set_flag(Flag::ZF); 
+          zf = true;
         }
         break;
       default:
         LOG(FATAL) << "NotImplemented KeyBoardINT: " << hex2str(reg.AH);
     };
+    reg.set_flag(Flag::ZF, zf);
+    return zf;
   }
   void ClockINT() {
     time_t cur_time;

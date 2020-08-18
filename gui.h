@@ -52,12 +52,10 @@ public:
     palette[palette_index][palette_sub_index++] = value;
   }
   uint16_t get_key() {
-    cout << "GET_KEY()" << endl;
     unique_lock<mutex> lock(key_mutex);
-    // key_cv.wait(lock, [&](){return cur_key != 0;});
+    key_cv.wait(lock, [&](){return cur_key != 0;});
     uint16_t key = cur_key;
     cur_key = 0;
-    cout << "GET_KEY OVER()" << endl;
     return key;
   }
   void set_key(uint16_t key) {
