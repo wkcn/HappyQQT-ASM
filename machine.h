@@ -1428,7 +1428,7 @@ private:
       lv32 *= rv32;
       reg.AX = lv32 & 0xFFFF;
       reg.DX = (lv32 >> 16) & 0xFFFF;
-      UpdateFlag(lv32);
+      UpdateFlag(reg.AX);
     } else {
       CHECK(modrm.REG == 0b110);
       // DXAX
@@ -1800,43 +1800,28 @@ private:
   }
 private:
   template<typename T, typename uT>
+  inline void CheckOFandCF(int32_t val) {
+    constexpr int32_t min_val = std::numeric_limits<T>::min();
+    constexpr int32_t max_val = std::numeric_limits<T>::max();
+    constexpr int32_t umin_val = std::numeric_limits<uT>::min();
+    constexpr int32_t umax_val = std::numeric_limits<uT>::max();
+    reg.set_flag(Flag::OF, (min_val > val || val > max_val));  // signed
+    reg.set_flag(Flag::CF, (umin_val > val || val > umax_val));  // unsigned
+  }
+  template<typename T, typename uT>
   uT _ADD(uT dest, uT source, bool carry=false) {
-    uT res = dest + source;
-    bool pos_res = static_cast<T>(res) >= 0;
-    bool pos_dest = static_cast<T>(dest) >= 0;
-    bool pos_source = static_cast<T>(source) >= 0;
-    bool overflow;
-    if (carry && ~res == 0) {
-      overflow = true;
-      res = 0;
-    } else {
-      // TOFIX
-      if (carry) res += 1;
-      overflow = res != 0 && (pos_dest == pos_source) && pos_res != pos_dest;
-    }
-    reg.set_flag(Flag::OF, overflow);
-    reg.set_flag(Flag::CF, overflow);
-    UpdateFlag(res);
+    int32_t res = (int32_t)dest + (int32_t)source;
+    if (carry) ++res;
+    CheckOFandCF<T, uT>(res);
+    UpdateFlag((uT)res);
     return res;
   }
   template<typename T, typename uT>
   uT _SUB(uT dest, uT source, bool borrow=false) {
-    uT res = dest - source;
-    bool pos_res = static_cast<T>(res) >= 0;
-    bool pos_dest = static_cast<T>(dest) >= 0;
-    bool pos_source = static_cast<T>(source) >= 0;
-    bool overflow;
-    if (borrow && res == 0) {
-      overflow = true;
-      res = ~0;
-    } else {
-      // TOFIX
-      if (borrow) res -= 1;
-      overflow = res != 0 && (pos_dest != pos_source) && pos_res != pos_dest;
-    }
-    reg.set_flag(Flag::OF, overflow);
-    reg.set_flag(Flag::CF, dest < source);
-    UpdateFlag(res);
+    int32_t res = (int32_t)dest - (int32_t)source;
+    if (borrow) --res;
+    CheckOFandCF<T, uT>(res);
+    UpdateFlag((uT)res);
     return res;
   }
   template<typename T, typename uT>
