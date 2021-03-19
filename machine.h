@@ -125,7 +125,7 @@ public:
 
       if (recording) {
         history.push(GetCurrentState());
-        if (history.size() > 10) history.pop();
+        if (history.size() > 100) history.pop();
       }
 
       use_prefix = false;
@@ -439,6 +439,7 @@ public:
           break;
         case 0x73:
           JNC(p+1);
+          break;
         case 0x74:
           JZ(p+1);
           break;
@@ -683,15 +684,6 @@ public:
       const uint16_t p_func_draw_player = SYMBOLS.at("DrawPlayer");
       const uint16_t p_func_ispassed = SYMBOLS.at("PlayerIsPassed");
       const uint16_t p_func_ispassedend = SYMBOLS.at("PlayerIsPassedRtn");
-      if (reg.IP == base_addr + p_func_ispassed) {
-        recording = true;
-      }
-      if (reg.IP == base_addr + p_func_ispassedend) {
-        cout << "========" << endl;
-        PrintHistory();
-        cout << "========" << endl;
-        recording = false;
-      }
       if (reg.IP == p_func_draw_player + base_addr) {
         // recording = true;
       }
@@ -2089,6 +2081,9 @@ private:
       " SS:" << REG_STATE(SS) <<
       " ES:" << REG_STATE(ES) <<
       " IP:" << REG_STATE(IP) <<
+      endl <<
+      " ZF:" << reg.get_flag(Flag::ZF) <<
+      " CF:" << reg.get_flag(Flag::CF) <<
       endl;
     last_register = reg;
 #undef REG_STATE
