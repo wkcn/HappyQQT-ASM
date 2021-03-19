@@ -17,4 +17,14 @@ const std::unordered_map<std::string, uint16_t> SYMBOLS = {
   {"DrawRectH", 0x00000F82},
   {"PLAYER_X", 0x00000F8A},
   {"PLAYER_Y", 0x00000F8C},
+
+  // extern variables
+  {"Players", 0x00000F84},
+  {"PASSED_DATA", 0xab6d},
+  {"STATE_DATA", 0xac71},
+  {"Bombs", 0x8da8},
+  {"PlayerHP", 0xa8f5},
+  {"BossHP", 0xa8f6},
+  {"PlayerNOHARM", 0xa8f7},
+  {"BossNOHARM", 0xa8f9},
 };

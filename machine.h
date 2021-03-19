@@ -14,6 +14,7 @@
 #include <cstring>
 #include <ctime>
 using namespace std;
+#include "ai.h"
 #include "logging.h"
 #include "register.h"
 #include "instruction.h"
@@ -109,6 +110,21 @@ public:
     // 0x3276 is the function AI
     mem.get(base_addr + 0x3276) = INJECT_FUNC_CODE;
     inject_functions[base_addr + 0x3276] = std::bind(&Machine::QQTAI, this);
+
+    // inject ai
+    auto get_mem_ptr = [&](string name) -> void* {
+      uint8_t *p = &mem.get<uint8_t>(base_addr + SYMBOLS.at(name));
+      return (void*)p;
+    };
+    #define bind_var(name) (name = static_cast<decltype(name)>(get_mem_ptr(#name)))
+    bind_var(Players);
+    bind_var(PASSED_DATA);
+    bind_var(STATE_DATA);
+    bind_var(Bombs);
+    bind_var(PlayerHP);
+    bind_var(BossHP);
+    bind_var(PlayerNOHARM);
+    bind_var(BossNOHARM);
   }
   void run() {
     while (1) {
@@ -1250,10 +1266,12 @@ private:
   void MOVGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
-    if (CheckMemValid(eb) && CheckMemValid(gb))
-      *gb = *eb;
-  else
-    LOG(FATAL) << "MEM ERROR";
+    if (!CheckMemValid(eb) || !CheckMemValid(gb)) {
+      PrintState();
+      PrintHistory();
+      LOG(FATAL) << "MEM ERROR";
+    }
+    *gb = *eb;
   }
   void MOVGvEv(uint8_t *p) {
     uint16_t *ev, *gv;
@@ -2011,7 +2029,11 @@ private:
     CHECK_EQ(zero, 0);
   }
   void QQTAI() {
-    // cout << "QQT AI" << endl;
+    // ai start
+    // copy game data to AI
+    AI();
+    // copy AI to game data
+    // ai end
     RET();
     uint8_t zero;
     POPb(zero);
@@ -2026,6 +2048,7 @@ private:
     cout << endl;
   }
   string GetCurrentState() {
+    return hex2str(reg.IP - base_addr);
     static Registers last_register;
     uint32_t addr = get_addr(reg.CS, reg.IP);
     uint32_t code_addr = addr - base_addr;
