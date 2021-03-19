@@ -13,6 +13,7 @@ using namespace std;
 #include "logging.h"
 #include <unistd.h>
 
+const int RATIO = 4;
 const int WINDOW_WIDTH = 320, WINDOW_HEIGHT = 200;
 const int WINDOW_SIZE = WINDOW_WIDTH * WINDOW_HEIGHT;
 const int MAX_FPS = 60;
@@ -93,6 +94,7 @@ void Display() {
     }
   }
   glDrawPixels(WINDOW_WIDTH, WINDOW_HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, VIDEO_BUFFER.data());
+  glPixelZoom(RATIO, RATIO);
 	glutSwapBuffers();
 }
 
@@ -102,7 +104,7 @@ void Idle(){
 }
 
 void Reshape(int w, int h){
-	glViewport (0, 0, (GLsizei) WINDOW_WIDTH, (GLsizei) WINDOW_HEIGHT);   
+	glViewport (0, 0, (GLsizei) WINDOW_WIDTH * RATIO, (GLsizei) WINDOW_HEIGHT * RATIO);
 }
 
 void Keyboard(unsigned char key, int x,int y){
@@ -120,7 +122,7 @@ void gui_main_func(GUI *gui) {
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
   glutInitWindowPosition(0, 0);
-  glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+  glutInitWindowSize(WINDOW_WIDTH * RATIO, WINDOW_HEIGHT * RATIO);
   int globalWindow = glutCreateWindow("Happy QQT");
   glutDisplayFunc(&Display);
 	glutReshapeFunc(Reshape);
