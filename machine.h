@@ -681,10 +681,21 @@ public:
 
       const uint16_t p_func_draw = SYMBOLS.at("DRAW");
       const uint16_t p_func_draw_player = SYMBOLS.at("DrawPlayer");
+      const uint16_t p_func_ispassed = SYMBOLS.at("PlayerIsPassed");
+      const uint16_t p_func_ispassedend = SYMBOLS.at("PlayerIsPassedRtn");
+      if (reg.IP == base_addr + p_func_ispassed) {
+        recording = true;
+      }
+      if (reg.IP == base_addr + p_func_ispassedend) {
+        cout << "========" << endl;
+        PrintHistory();
+        cout << "========" << endl;
+        recording = false;
+      }
       if (reg.IP == p_func_draw_player + base_addr) {
         // recording = true;
       }
-      if (reg.IP == p_func_draw + base_addr) {
+      if (false && reg.IP == p_func_draw + base_addr) {
         uint16_t draw_segment = mem.get<uint16_t>(base_addr + SYMBOLS.at("DrawSegment"));
         if (draw_segment == 0x4800) {
           uint16_t rx = mem.get<uint16_t>(base_addr + SYMBOLS.at("DrawRectW"));
@@ -692,10 +703,7 @@ public:
           uint16_t px = mem.get<uint16_t>(base_addr + SYMBOLS.at("PLAYER_X"));
           uint16_t py = mem.get<uint16_t>(base_addr + SYMBOLS.at("PLAYER_Y"));
           cout << hex2str(px) << ", " << hex2str(py) << endl;
-          cout << "gt cx: " << (px >> 4) - (16 - 40) / 2 << endl;
-          cout << "gt dx: " << (py >> 4) - (16 - 40) << endl;
           cout << "DRAW: " << hex2str(draw_segment) << ":" << rx << ", " << ry << " | " << reg.CX << "!" << reg.DX << endl;
-          recording = false;
           PrintHistory();
         }
       } 
@@ -2052,28 +2060,38 @@ private:
     cout << endl;
   }
   string GetCurrentState() {
+    static Registers last_register;
     uint32_t addr = get_addr(reg.CS, reg.IP);
     uint32_t code_addr = addr - base_addr;
     auto p = source_code.find(code_addr);
     string code_name = p != source_code.end() ? p->second : hex2str(code_addr);
 
+    auto reg_state = [&](uint16_t value, uint16_t old) -> string {
+      if (value == old) return hex2str(value);
+      return "\033[31m" + hex2str(value) + "\033[0m";
+    };
+
+#define  REG_STATE(name) reg_state(reg.name, last_register.name)
+
     stringstream ss;
     ss << hex2str(addr - 0x7e00) << " OP:" << code_name << endl <<
-      " AX:" << hex2str(reg.AX) <<
-      " BX:" << hex2str(reg.BX) <<
-      " CX:" << hex2str(reg.CX) <<
-      " DX:" << hex2str(reg.DX) <<
-      " SP:" << hex2str(reg.SP) <<
-      " BP:" << hex2str(reg.BP) <<
-      " SI:" << hex2str(reg.SI) <<
-      " DI:" << hex2str(reg.DI) <<
+      " AX:" << REG_STATE(AX) <<
+      " BX:" << REG_STATE(BX) <<
+      " CX:" << REG_STATE(CX) <<
+      " DX:" << REG_STATE(DX) <<
+      " SP:" << REG_STATE(SP) <<
+      " BP:" << REG_STATE(BP) <<
+      " SI:" << REG_STATE(SI) <<
+      " DI:" << REG_STATE(DI) <<
       endl <<
-      " CS:" << hex2str(reg.CS) <<
-      " DS:" << hex2str(reg.DS) <<
-      " SS:" << hex2str(reg.SS) <<
-      " ES:" << hex2str(reg.ES) <<
-      " IP:" << hex2str(reg.IP) <<
+      " CS:" << REG_STATE(CS) <<
+      " DS:" << REG_STATE(DS) <<
+      " SS:" << REG_STATE(SS) <<
+      " ES:" << REG_STATE(ES) <<
+      " IP:" << REG_STATE(IP) <<
       endl;
+    last_register = reg;
+#undef REG_STATE
     return ss.str();
   }
   void PrintState() {
