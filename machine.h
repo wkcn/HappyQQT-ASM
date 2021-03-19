@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <stack>
+#include <sstream>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -18,6 +19,7 @@ using namespace std;
 #include "instruction.h"
 #include "memory.h"
 #include "gui.h"
+#include "symbol.h"
 
 const int UpdateTimes = 60;
 using time_point = std::chrono::steady_clock::time_point;
@@ -62,6 +64,7 @@ void PrintInstruction(Instruction ins) {
 
 class Machine {
 public:
+  const uint16_t base_addr = 0x7e00;
   Machine() {
     memset(&reg, 0, sizeof(reg));
     reg.FR = 512;
@@ -89,7 +92,7 @@ public:
     }
   }
   void load(const string& filename) {
-    reg.IP = 0x7e00;
+    reg.IP = base_addr;
     ifstream fin(filename);
     string line;
     getline(fin, line);
@@ -99,7 +102,6 @@ public:
     }
   }
   void inject_qqt() {
-    uint16_t base_addr = 0x7e00;
     mem.get(base_addr + 0x17d) = INJECT_FUNC_CODE;
     inject_functions[base_addr + 0x17d] = std::bind(&Machine::ReadFloppy, this);
     // 0x3152 is the function Update
@@ -111,20 +113,6 @@ public:
   }
   void run() {
     while (1) {
-      /*
-      static uint16_t old_SP = 0;
-      if (old_SP != reg.SP) {
-        cout << "NEW SP: " << hex2str(reg.SP) << endl;
-        PrintState();
-        old_SP = reg.SP;
-      }
-      */
-      // CHECK(mem.get(0x7e00+0x2f5f) == 0x66) << hex2str(reg.IP - 0x7e00);
-      /*
-      CHECK(mem.get(0x7e00+0xeca) == 0xe8);
-      CHECK(mem.get(0x7e00+0xecb) == 0xdc);
-      CHECK(mem.get(0x7e00+0xecc) == 0xf4) << hex2str(reg.IP - 0x7e00);
-      */
       uint16_t cc = mem.get<uint16_t>(8*4+2);
       if (rep_mode) {
         if (--reg.CX == 0) {
@@ -135,26 +123,20 @@ public:
         }
       }
 
-      history.push(reg.IP);
-      if (history.size() > 500) history.pop();
+      {
+        stringstream ss;
+        uint32_t code_addr = reg.IP - base_addr;
+        auto p = source_code.find(code_addr);
+        string code_name = p != source_code.end() ? p->second : hex2str(code_addr);
+        ss << code_name << ": " << hex2str(reg.CX) << ", " << hex2str(reg.DX) << endl;
+        history.push(ss.str());
+        if (history.size() > 10) history.pop();
+      }
 
       use_prefix = false;
 
       uint32_t addr = get_addr(reg.CS, reg.IP);
       uint8_t *p = &(mem.get(addr));
-      // if (reg.IP == 0x152 + 0x7e00) debug = true;
-      //
-      /*
-      {
-        int id = 8;
-        uint16_t &offset = mem.get<uint16_t>(id * 4);
-        uint16_t &seg = mem.get<uint16_t>(id * 4 + 2);
-        if (offset == 0 && seg != 0x8cbd) { 
-          PrintState();
-          LOG(FATAL) << "OH NO";
-        }
-      }
-      */
       if (debug)
         cin.get();
       switch (*p) {
@@ -674,7 +656,7 @@ public:
           break;
         default:
           PrintHistory();
-          LOG(FATAL) << "Unknown OpCode: [" << hex2str(reg.CS) << ":" << hex2str(reg.IP) << "=" << hex2str(addr - 0x7e00) << "]" << hex2str(*p);
+          LOG(FATAL) << "Unknown OpCode: [" << hex2str(reg.CS) << ":" << hex2str(reg.IP) << "=" << hex2str(addr - base_addr) << "]" << hex2str(*p);
       }
 
       ++run_count;
@@ -686,10 +668,6 @@ public:
             reg.IP -= 1;
           }
           last_int08h_time = cur_time;
-          /*
-          cout << "Speed: " << float(run_count) * 1000 / diff_ms / (1024 * 1024 * 1024) << " GHz, " <<
-            "CS:IP = " << hex2str(reg.CS) << ":" << hex2str(reg.IP) << "  " << hex2str(reg.IP - 0x7e00) << endl;
-          */
           run_count = 0;
         }
       }
@@ -706,12 +684,23 @@ public:
         use_32bits_mode = false;
       }
 
-      // edb, ef4, efc, eff
-      // fail: f02, f05, f08, f0e, f3b
-      if (false && reg.IP == 0x7e00 + 0xf02) {
-        debug_count = 20;
-        end_count = 20;
-      }
+      const uint16_t p_func_draw = SYMBOLS.at("DRAW");
+      if (reg.IP == p_func_draw + base_addr) {
+        uint16_t draw_segment = mem.get<uint16_t>(base_addr + SYMBOLS.at("DrawSegment"));
+        if (draw_segment == 0x4800) {
+          uint16_t rx = mem.get<uint16_t>(base_addr + SYMBOLS.at("DrawRectW"));
+          uint16_t ry = mem.get<uint16_t>(base_addr + SYMBOLS.at("DrawRectH"));
+          uint16_t px = mem.get<uint16_t>(base_addr + SYMBOLS.at("PLAYER_X"));
+          uint16_t py = mem.get<uint16_t>(base_addr + SYMBOLS.at("PLAYER_Y"));
+          PrintState();
+          cout << hex2str(px) << ", " << hex2str(py) << endl;
+          cout << "gt cx: " << (px >> 4) - (16 - 40) / 2 << endl;
+          cout << "gt dx: " << (py >> 4) - (16 - 40) << endl;
+          cout << "DRAW: " << hex2str(draw_segment) << ":" << rx << ", " << ry << " | " << reg.CX << "!" << reg.DX << endl;
+          PrintHistory();
+        }
+      } 
+
       if (end_count > 0) {
         if (--end_count == 0) {
           // LOG(FATAL) << "OVER";
@@ -899,13 +888,10 @@ private:
     reg.IP += 2;
   }
   void CALL(uint8_t *p) {
-    // cout << "=====CCC" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << " = " << hex2str(reg.IP - 0x7e00) << " SP: " << hex2str(reg.SP) << endl; 
     reg.IP += use_32bits_mode ? 4 : 2;
     uint16_t IPPlus1 = reg.IP + 1;
     PUSHw(IPPlus1);
     reg.IP += *reinterpret_cast<uint16_t*>(p);
-    // cout << hex2str(*p) << "#" << hex2str(*(p+1)) << "$" << hex2str(*(p+2)) << "#" << hex2str(*(p+3)) << endl;
-    // cout << hex2str(*reinterpret_cast<uint16_t*>(p)) << "~" << hex2str(reg.IP) << endl;
   }
   void CALLF(uint16_t seg, uint16_t offset) {
     PUSHw(reg.CS);
@@ -1154,13 +1140,13 @@ private:
     reg.IP += 1;
   }
   void JNL(uint8_t *p) {
-    // TOFIX
-    if (reg.get_flag(Flag::ZF) || reg.get_flag(Flag::SF) == reg.get_flag(Flag::OF))
+    // not less than
+    if (reg.get_flag(Flag::ZF) || (reg.get_flag(Flag::SF) == reg.get_flag(Flag::OF)))
       _IPStep(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
   }
   void JL(uint8_t *p) {
-    // TOFIX
+    // less than
     if (!reg.get_flag(Flag::ZF) && (reg.get_flag(Flag::SF) != reg.get_flag(Flag::OF)))
       _IPStep(*reinterpret_cast<uint8_t*>(p));
     reg.IP += 1;
@@ -1369,10 +1355,6 @@ private:
   void MOVeIv(uint8_t *p, uint16_t &lv) {
     uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
     lv = rv;
-    /*
-    if (reg.IP == 0x7e00+0x350)
-      cout << "SET: " << hex2str(rv) << "!" << hex2str(reg.SI) << endl;
-    */
     reg.IP += 2;
   }
   void MOVEbIb(uint8_t *p) {
@@ -1527,9 +1509,7 @@ private:
     POPw(reg.FR);
   }
   void RET() {
-    // cout << "POP BEFORE SP:" << hex2str(reg.SP) << " IP:" << hex2str(reg.IP) << endl; 
     POPw(reg.IP);
-    // cout << "=====RET" << hex2str(reg.FR) << ", " << hex2str(reg.CS) << ", " << hex2str(reg.IP) << " = " << hex2str(reg.IP - 0x7e00) << " SP:" << hex2str(reg.SP) << endl; 
     reg.IP -= 1; // cancel +1 in the end
   }
   void IRET() {
@@ -1639,12 +1619,19 @@ private:
     uint16_t *ev;
     uint8_t *iv;
     _GetEvIv(p, ev, iv);
+    uint16_t old_CX = reg.DX;
     switch (modrm.REG) {
       case 0b100:
         (*ev) <<= (*iv);
         break;
       case 0b101:
         (*ev) >>= (*iv);
+        /*
+        if (*iv == 0x4 && ev == &reg.DX) {
+          cout << "NEW EV: " << hex2str(*ev) << " @@: " << hex2str(old_CX) << endl;
+          PrintState();
+        }
+        */
         break;
       case 0b111:
         (*ev) >>= 1;
@@ -1839,9 +1826,8 @@ private:
 private:
   template <typename T>
   void UpdateFlag(T v) {
-    T w = 1 << (sizeof(T)*8-1);
     reg.set_flag(Flag::ZF, v == 0);
-    reg.set_flag(Flag::SF, v & w);
+    reg.set_flag(Flag::SF, (v >> (sizeof(T)*8 - 1)) & 1);  // the highest bit
     reg.set_flag(Flag::PF, num_1bits[v & 0xff] % 2);
   }
   uint16_t& GetSeg16(const uint8_t REG) {
@@ -1970,11 +1956,14 @@ private:
     // address | opcode | note
     uint32_t addr = get_addr(reg.CS, reg.IP);
     int i;
+    uint32_t code_addr = 0;
     for (i = 0; i < 8; ++i) {
       const char c = line[i];
       if (c == ' ') return;
-      addr += hex2dec(c) * (1 << ((7 - i) * 4));
+      code_addr += hex2dec(c) * (1 << ((7 - i) * 4));
     }
+    addr += code_addr;
+    source_code[code_addr] = line;
     while (line[i] == ' ') ++i;
     while (line[i] != ' ') {
       uint8_t high = hex2dec(line[i++]);
@@ -2055,7 +2044,7 @@ private:
 private:
   void PrintHistory() {
     while (!history.empty()) {
-      cout << hex2str(history.front() - 0x7e00) << ", ";
+      cout << history.front() << endl;
       history.pop();
     }
     cout << endl;
@@ -2091,6 +2080,7 @@ private:
   int end_count = -1;
   Registers reg;
   Memory mem;
+  unordered_map<uint32_t, string> source_code;
   GUI gui;
   const char hexch[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
   map<uint32_t, std::function<void()> > inject_functions;
@@ -2098,7 +2088,7 @@ private:
   time_point last_int08h_time;
   bool use_prefix;
   bool use_32bits_mode;
-  queue<uint16_t> history;
+  queue<string> history;
   array<uint8_t, 256> num_1bits;
   int run_count = 0;
 };
