@@ -71,7 +71,6 @@ public:
     gui.set_video_addr(&(mem.get(0xa000, 0)));
     InitIVT();
     last_int08h_time = get_time_now();
-    use_prefix = false;
     InitNum1();
   }
   void InitIVT() {
@@ -113,24 +112,38 @@ public:
   }
   void run() {
     while (1) {
-      if (rep_mode) {
-        if (--reg.CX == 0) {
-          rep_mode = false;
-        } else if (reg.IP == rep_next_ip && reg.CS == rep_next_cs) {
-          reg.CS = rep_CS;
-          reg.IP = rep_IP;
-        }
-      }
-
       if (recording) {
         history.push(GetCurrentState());
         if (history.size() > 100) history.pop();
       }
 
-      use_prefix = false;
-
       uint32_t addr = get_addr(reg.CS, reg.IP);
       uint8_t *p = &(mem.get(addr));
+
+      // process prefix
+      bool use_prefix = true;
+      switch (*p) {
+        case 0x26:
+          SetSegPrefix(&reg.ES);
+          break;
+        case 0x2e:
+          SetSegPrefix(&reg.CS);
+          break;
+        case 0x36:
+          SetSegPrefix(&reg.SS);
+          break;
+        case 0x3e:
+          SetSegPrefix(&reg.DS);
+          break;
+        default:
+          use_prefix = false;
+      }
+      if (use_prefix) {
+        reg.IP += 1;
+        uint32_t addr = get_addr(reg.CS, reg.IP);
+        p = &(mem.get(addr));
+      }
+
       switch (*p) {
         case 0x00:
           ADDEbGb(p+1);
@@ -240,9 +253,6 @@ public:
         case 0x25:
           ANDeAXIv(p+1);
           break;
-        case 0x26:
-          SetSegPrefix(reg.ES);
-          break;
         case 0x27:
           DAA();
           break;
@@ -263,9 +273,6 @@ public:
           break;
         case 0x2d:
           SUBeAXIv(p+1);
-          break;
-        case 0x2e:
-          SetSegPrefix(reg.CS);
           break;
         case 0x2f:
           DAS();
@@ -288,9 +295,6 @@ public:
         case 0x35:
           XOReAXIv(p+1);
           break;
-        case 0x36:
-          SetSegPrefix(reg.SS);
-          break;
         case 0x37:
           AAA();
           break;
@@ -311,9 +315,6 @@ public:
           break;
         case 0x3d:
           CMPeAXIv(p+1);
-          break;
-        case 0x3e:
-          SetSegPrefix(reg.DS);
           break;
         case 0x40:
           INC(reg.AX);
@@ -627,7 +628,7 @@ public:
           OUTDXAL();
           break;
         case 0xf3:
-          REP();
+          REP(p+1);
           break;
         case 0xf6:
           MULEb(p+1);
@@ -648,34 +649,23 @@ public:
           INCDECw(p+1);
           break;
         default:
-          PrintHistory();
           LOG(FATAL) << "Unknown OpCode: [" << hex2str(reg.CS) << ":" << hex2str(reg.IP) << "=" << hex2str(addr - base_addr) << "]" << hex2str(*p);
+          PrintState();
+          PrintHistory();
       }
 
-      ++run_count;
-      if (!use_prefix && !rep_mode) {
-        time_point cur_time = get_time_now();
-        int diff_ms = std::chrono::duration_cast<milliseconds>(cur_time - last_int08h_time).count();
-        if (diff_ms >= 1000 / UpdateTimes) {
-          if (CALL_INT(0x08)) {
-            reg.IP -= 1;
-          }
-          last_int08h_time = cur_time;
-          run_count = 0;
+      time_point cur_time = get_time_now();
+      int diff_ms = std::chrono::duration_cast<milliseconds>(cur_time - last_int08h_time).count();
+      if (diff_ms >= 1000 / UpdateTimes) {
+        if (CALL_INT(0x08)) {
+          reg.IP -= 1;
         }
+        last_int08h_time = cur_time;
       }
 
       reg.IP += 1;
 
-      if (!use_prefix) {
-        if (rep_mode) {
-          if (rep_next_cs == 0xFFFF) {
-            rep_next_ip = reg.IP;
-            rep_next_cs = reg.CS;
-          }
-        }
-        use_32bits_mode = false;
-      }
+      use_32bits_mode = false;
 
       /*
       const uint16_t p_func_draw = SYMBOLS.at("DRAW");
@@ -1227,6 +1217,7 @@ private:
       reg.IP += 1;
       return 1;
     }
+    // pre_seg != nullptr
     // Mem, Reg
     uint16_t offset;
     int ip_update = _GetSegAndOffset(p, offset);
@@ -1236,20 +1227,10 @@ private:
     ev = &mem.get<uT>(addr);
     return ip_update; 
   }
-  template <typename uT>
-  void _GetEvGv(uint8_t *p, uT *&ev, uT *&gv) {
-    _GetGv_nostep(p, gv);
-    _GetEv(p, ev);
-  }
   template <typename eT, typename gT>
   void _GetEvGv(uint8_t *p, eT *&ev, gT *&gv) {
     _GetGv_nostep(p, gv);
     _GetEv(p, ev);
-  }
-  template <typename uT>
-  void _GetEvIv(uint8_t *p, uT *&ev, uT *&iv) {
-    iv = reinterpret_cast<uT*>(p+_GetEv(p, ev));
-    reg.IP += sizeof(uT);
   }
   template <typename uT, typename iT>
   void _GetEvIv(uint8_t *p, uT *&ev, iT *&iv) {
@@ -1269,7 +1250,10 @@ private:
   void MOVGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
-    *gb = *eb;
+    if (CheckMemValid(eb) && CheckMemValid(gb))
+      *gb = *eb;
+  else
+    LOG(FATAL) << "MEM ERROR";
   }
   void MOVGvEv(uint8_t *p) {
     uint16_t *ev, *gv;
@@ -1539,13 +1523,16 @@ private:
     reg.AX |= rv;
     reg.IP += use_32bits_mode ? 4 : 2;
   }
-  void REP() {
-    rep_mode = true;
-    rep_CS = reg.CS;
-    rep_IP = reg.IP + 1;
-    use_prefix = true;
-    rep_next_cs = 0xFFFF;
-    rep_next_ip = 0xFFFF;
+  void REP(uint8_t *p) {
+    CHECK(*p == 0xa5);  // movsw, [es:di] = [ds:si]
+    void *dst = &mem.get<uint16_t>(get_addr(reg.ES, reg.DI));
+    void *src = &mem.get<uint16_t>(get_addr(reg.DS, reg.SI));
+    const int n = reg.CX * 2;
+    memcpy(dst, src, n);
+    reg.DI += n;
+    reg.SI += n;
+    reg.CX = 0;
+    reg.IP += 1;
   }
   void SBBEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
@@ -1884,13 +1871,21 @@ private:
   template <typename T> inline T& GetReg(const uint8_t REG) {
     return _GetReg(REG, DummyIdentity<T>());
   }
-  void SetSegPrefix(uint16_t &reg) {
-    pre_seg = &reg;
-    use_prefix = true;
+  void SetSegPrefix(uint16_t *reg) {
+    pre_seg = reg;
   }
   void Set32bPrefix() {
-    use_prefix = true;
     use_32bits_mode = true;
+  }
+private:
+  // memory
+  bool CheckMemValid(void *p) {
+    // [TODO] a temporary fix
+    const uint8_t *reg_p = static_cast<uint8_t*>((void*)&reg);
+    if (p >= reg_p && p < reg_p + sizeof(reg)) return true;
+    const uint8_t *mem_p = static_cast<uint8_t*>((void*)&mem);
+    if (p >= mem_p && p < mem_p + sizeof(mem)) return true;
+    return false;
   }
 private:
   void ScreenINT() {
@@ -2035,12 +2030,14 @@ private:
     uint32_t addr = get_addr(reg.CS, reg.IP);
     uint32_t code_addr = addr - base_addr;
     auto p = source_code.find(code_addr);
+    // if (p == source_code.end()) return {};
     string code_name = p != source_code.end() ? p->second : hex2str(code_addr);
 
     auto reg_state = [&](uint16_t value, uint16_t old) -> string {
       if (value == old) return hex2str(value);
       return "\033[31m" + hex2str(value) + "\033[0m";
     };
+    return "ADDR:" + hex2str(code_addr);
 
 #define  REG_STATE(name) reg_state(reg.name, last_register.name)
 
@@ -2073,9 +2070,6 @@ private:
   }
 private:
   uint16_t *pre_seg = nullptr;
-  bool rep_mode = false;
-  uint16_t rep_CS, rep_IP; 
-  uint16_t rep_next_cs, rep_next_ip;
 private:
   bool recording = false;
   Registers reg;
@@ -2086,10 +2080,8 @@ private:
   map<uint32_t, std::function<void()> > inject_functions;
   queue<uint8_t> key_buffer;
   time_point last_int08h_time;
-  bool use_prefix;
   bool use_32bits_mode;
   queue<string> history;
   array<uint8_t, 256> num_1bits;
-  int run_count = 0;
 };
 
