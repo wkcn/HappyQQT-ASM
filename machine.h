@@ -123,13 +123,8 @@ public:
         }
       }
 
-      {
-        stringstream ss;
-        uint32_t code_addr = reg.IP - base_addr;
-        auto p = source_code.find(code_addr);
-        string code_name = p != source_code.end() ? p->second : hex2str(code_addr);
-        ss << code_name << ": " << hex2str(reg.CX) << ", " << hex2str(reg.DX) << endl;
-        history.push(ss.str());
+      if (recording) {
+        history.push(GetCurrentState());
         if (history.size() > 10) history.pop();
       }
 
@@ -685,6 +680,10 @@ public:
       }
 
       const uint16_t p_func_draw = SYMBOLS.at("DRAW");
+      const uint16_t p_func_draw_player = SYMBOLS.at("DrawPlayer");
+      if (reg.IP == p_func_draw_player + base_addr) {
+        // recording = true;
+      }
       if (reg.IP == p_func_draw + base_addr) {
         uint16_t draw_segment = mem.get<uint16_t>(base_addr + SYMBOLS.at("DrawSegment"));
         if (draw_segment == 0x4800) {
@@ -692,11 +691,11 @@ public:
           uint16_t ry = mem.get<uint16_t>(base_addr + SYMBOLS.at("DrawRectH"));
           uint16_t px = mem.get<uint16_t>(base_addr + SYMBOLS.at("PLAYER_X"));
           uint16_t py = mem.get<uint16_t>(base_addr + SYMBOLS.at("PLAYER_Y"));
-          PrintState();
           cout << hex2str(px) << ", " << hex2str(py) << endl;
           cout << "gt cx: " << (px >> 4) - (16 - 40) / 2 << endl;
           cout << "gt dx: " << (py >> 4) - (16 - 40) << endl;
           cout << "DRAW: " << hex2str(draw_segment) << ":" << rx << ", " << ry << " | " << reg.CX << "!" << reg.DX << endl;
+          recording = false;
           PrintHistory();
         }
       } 
@@ -857,25 +856,28 @@ private:
     reg.IP += 1;
   }
   void ADDSUBEvIb(uint8_t *p) {
+    // Although ev is 16 bit,s but the computation is 8 bits.
     ModRM &modrm = read_oosssmmm(p);
     uint16_t *ev;
-    uint8_t *iv;
-    _GetEvIv(p, ev, iv);
+    uint8_t *uiv;
+    _GetEvIv(p, ev, uiv);
+    // iv should be signed
+    int8_t iv = static_cast<int8_t>(*uiv);
     switch (modrm.REG) {
       case 0b000:
-        *ev = _ADD<int16_t, uint16_t>(*ev, *iv);
+        *ev = _ADD<int16_t, uint16_t>(*ev, iv);
         break;
       case 0b100:
-        *ev = _AND<int16_t, uint16_t>(*ev, *iv);
+        *ev = _AND<int16_t, uint16_t>(*ev, iv);
         break;
       case 0b101:
-        *ev = _SUB<int16_t, uint16_t>(*ev, *iv);
+        *ev = _SUB<int16_t, uint16_t>(*ev, iv);
         break;
       case 0b010:
-        *ev = _ADD<int16_t, uint16_t>(*ev, *iv, reg.get_flag(Flag::CF));
+        *ev = _ADD<int16_t, uint16_t>(*ev, iv, reg.get_flag(Flag::CF));
         break;
       case 0b111:
-        _SUB<int16_t, uint16_t>(*ev, *iv);
+        _SUB<int16_t, uint16_t>(*ev, iv);
         break;
       default:
         PrintState();
@@ -2049,10 +2051,14 @@ private:
     }
     cout << endl;
   }
-  void PrintState() {
+  string GetCurrentState() {
     uint32_t addr = get_addr(reg.CS, reg.IP);
-    uint8_t *p = &(mem.get(addr));
-    cout << hex2str(addr - 0x7e00) << " OP:" << hex2str(*p) << endl <<
+    uint32_t code_addr = addr - base_addr;
+    auto p = source_code.find(code_addr);
+    string code_name = p != source_code.end() ? p->second : hex2str(code_addr);
+
+    stringstream ss;
+    ss << hex2str(addr - 0x7e00) << " OP:" << code_name << endl <<
       " AX:" << hex2str(reg.AX) <<
       " BX:" << hex2str(reg.BX) <<
       " CX:" << hex2str(reg.CX) <<
@@ -2068,6 +2074,10 @@ private:
       " ES:" << hex2str(reg.ES) <<
       " IP:" << hex2str(reg.IP) <<
       endl;
+    return ss.str();
+  }
+  void PrintState() {
+    cout << GetCurrentState() << endl;
   }
 private:
   uint16_t *pre_seg = nullptr;
@@ -2076,6 +2086,7 @@ private:
   uint16_t rep_next_cs, rep_next_ip;
 private:
   bool debug = false;
+  bool recording = false;
   int debug_count = 0;
   int end_count = -1;
   Registers reg;

@@ -7,6 +7,7 @@
 
 const std::unordered_map<std::string, uint16_t> SYMBOLS = {
   {"DRAW", 0x52f},
+  {"DrawPlayer", 0x00000466},
   {"DrawSegment", 0x00000F7E},
   {"DrawRectW", 0x00000F80},
   {"DrawRectH", 0x00000F82},
