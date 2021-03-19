@@ -113,7 +113,6 @@ public:
   }
   void run() {
     while (1) {
-      uint16_t cc = mem.get<uint16_t>(8*4+2);
       if (rep_mode) {
         if (--reg.CX == 0) {
           rep_mode = false;
@@ -132,8 +131,6 @@ public:
 
       uint32_t addr = get_addr(reg.CS, reg.IP);
       uint8_t *p = &(mem.get(addr));
-      if (debug)
-        cin.get();
       switch (*p) {
         case 0x00:
           ADDEbGb(p+1);
@@ -680,6 +677,7 @@ public:
         use_32bits_mode = false;
       }
 
+      /*
       const uint16_t p_func_draw = SYMBOLS.at("DRAW");
       const uint16_t p_func_draw_player = SYMBOLS.at("DrawPlayer");
       const uint16_t p_func_ispassed = SYMBOLS.at("PlayerIsPassed");
@@ -699,21 +697,7 @@ public:
           PrintHistory();
         }
       } 
-
-      if (end_count > 0) {
-        if (--end_count == 0) {
-          // LOG(FATAL) << "OVER";
-        }
-      }
-      // debug_count = 1;
-      if (debug_count > 0) {
-          PrintState();
-          --debug_count;
-      } else {
-        if (debug) {
-          PrintState();
-        }
-      }
+      */
 
     }
   }
@@ -2026,15 +2010,10 @@ private:
     RET();
   }
   void QQTUpdate() {
-    // debug_count = INT32_MAX;
-    // cout << "QQT Update" << endl;
-    // PrintState();
     RET();
     uint8_t zero;
     POPb(zero);
     CHECK_EQ(zero, 0);
-    // cout << "QQT OVER" << endl;
-    // PrintState();
   }
   void QQTAI() {
     // cout << "QQT AI" << endl;
@@ -2098,10 +2077,7 @@ private:
   uint16_t rep_CS, rep_IP; 
   uint16_t rep_next_cs, rep_next_ip;
 private:
-  bool debug = false;
   bool recording = false;
-  int debug_count = 0;
-  int end_count = -1;
   Registers reg;
   Memory mem;
   unordered_map<uint32_t, string> source_code;
