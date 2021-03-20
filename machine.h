@@ -105,6 +105,8 @@ public:
     mem.protect(base_addr + 0x17d, base_addr + 0xf75 + 1);
     // do not protect RAND_SEED
     mem.protect(base_addr + 0x30e, base_addr + 0x30e + 1, false);
+    // TQAX, TQAY, FBInd, FBpos
+    mem.protect(base_addr + 0x9de, base_addr + 0x9e6, false);
   }
   void inject_qqt() {
     mem.get(base_addr + 0x17d) = INJECT_FUNC_CODE;
