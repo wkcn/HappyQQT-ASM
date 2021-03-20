@@ -5,8 +5,6 @@ inline uint32_t get_addr(uint16_t seg, uint16_t offset) {
   return (uint32_t(seg) << 4) + uint32_t(offset);
 }
 
-#include <iostream>
-using namespace std;
 class Memory {
 public:
   template <typename T=uint8_t>

@@ -107,6 +107,8 @@ public:
     mem.protect(base_addr + 0x30e, base_addr + 0x30e + 1, false);
     // TQAX, TQAY, FBInd, FBpos
     mem.protect(base_addr + 0x9de, base_addr + 0x9e6, false);
+    // OldPower
+    mem.protect(base_addr + 0x636, base_addr + 0x63c, false);
   }
   void inject_qqt() {
     mem.get(base_addr + 0x17d) = INJECT_FUNC_CODE;
@@ -139,7 +141,7 @@ public:
     while (1) {
       if (recording) {
         // string info = GetCurrentState();
-        string info = hex2str(reg.IP - base_addr) + ":" + hex2str(mem.get<uint8_t>(reg.IP)) + ":" + hex2str(reg.CS);
+        string info = hex2str(reg.IP - base_addr) + ":" + hex2str(mem.get<uint8_t>(reg.IP)) + ":" + hex2str(reg.CX);
         history.push(info);
         if (history.size() > 100) history.pop();
       }
@@ -1922,6 +1924,7 @@ private:
 private:
   // memory
   void MemoryProtect(void *p, const string &msg = "") {
+    return;
     const uint8_t *reg_p = static_cast<uint8_t*>((void*)&reg);
     if (p >= reg_p && p < reg_p + sizeof(Registers)) return;
     const uint8_t *mem_p = &mem.get<uint8_t>(0);
@@ -2122,7 +2125,7 @@ private:
 private:
   uint16_t *pre_seg = nullptr;
 private:
-  bool recording = true;
+  bool recording = false;
   Registers reg;
   Memory mem;
   unordered_map<uint32_t, string> source_code;
