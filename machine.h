@@ -700,21 +700,25 @@ private:
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *eb = _ADD<int8_t, uint8_t>(*eb, *gb);
+    MemoryProtect(eb);
   }
   void ADDEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *ev = _ADD<int16_t, uint16_t>(*ev, *gv);
+    MemoryProtect(ev);
   }
   void ADDGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *gb = _ADD<int8_t, uint8_t>(*gb, *eb);
+    MemoryProtect(gb);
   }
   void ADDGvEv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *gv = _ADD<int16_t, uint16_t>(*gv, *ev);
+    MemoryProtect(gv);
   }
   void ADDeAXIv(uint8_t *p) {
     uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
@@ -725,21 +729,25 @@ private:
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *eb = _ADD<int8_t, uint8_t>(*eb, *gb, reg.get_flag(Flag::CF));
+    MemoryProtect(eb);
   }
   void ADCEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *ev = _ADD<int16_t, uint16_t>(*ev, *gv, reg.get_flag(Flag::CF));
+    MemoryProtect(ev);
   }
   void ADCGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *gb = _ADD<int8_t, uint8_t>(*gb, *eb, reg.get_flag(Flag::CF));
+    MemoryProtect(gb);
   }
   void ADCGvEv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *gv = _ADD<int16_t, uint16_t>(*gv, *ev, reg.get_flag(Flag::CF));
+    MemoryProtect(gv);
   }
   void ADCALIb(uint8_t *p) {
     // Acc, Imm
@@ -768,24 +776,28 @@ private:
     _GetEvGv(p, eb, gb);
     *eb &= *gb;
     UpdateFlag(*eb);
+    MemoryProtect(eb);
   }
   void ANDEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *ev &= *gv;
     UpdateFlag(*ev);
+    MemoryProtect(ev);
   }
   void ANDGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *gb &= *eb;
     UpdateFlag(*gb);
+    MemoryProtect(gb);
   }
   void ANDGvEv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *gv &= *ev;
     UpdateFlag(*gv);
+    MemoryProtect(gv);
   }
   void MultiEvIv(uint8_t *p) {
     // Mem, Imm
@@ -813,6 +825,7 @@ private:
       default:
         LOG(FATAL) << "Not supported " << hex2str(modrm);
     }
+    MemoryProtect(ev);
   }
   void ADDALIb(uint8_t *p) {
     // Acc, Imm
@@ -850,6 +863,7 @@ private:
         PrintHistory();
         LOG(FATAL) << "Wrong modrm: " << hex2str(modrm);
     };
+    MemoryProtect(ev);
   }
   void BOUNDGvMa(uint8_t *p) {
     // TODO
@@ -1007,6 +1021,7 @@ private:
       CHECK(modrm.REG == 0b001) << hex2str(*p) << "!" << hex2str(reg.CS) << ":" << hex2str(reg.IP);
       *v = _SUB<int8_t, uint8_t>(*v, 1);
     }
+    MemoryProtect(&v);
   }
   void INCDECw(uint8_t *p) {
     ModRM &modrm = read_oosssmmm(p);
@@ -1019,6 +1034,7 @@ private:
       CHECK(modrm.REG == 0b001) << hex2str(*p) << "!" << hex2str(reg.CS) << ":" << hex2str(reg.IP);
       *v = _SUB<int16_t, uint16_t>(*v, 1);
     }
+    MemoryProtect(&v);
   }
   void INT(uint8_t *p) {
     uint8_t id = *p;
@@ -1233,11 +1249,13 @@ private:
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *eb = *gb;
+    MemoryProtect(eb);
   }
   void MOVEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *ev = *gv;
+    MemoryProtect(ev);
   }
   void MOVGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
@@ -1247,11 +1265,13 @@ private:
     } else {
       *gb = *eb;
     }
+    MemoryProtect(gb);
   }
   void MOVGvEv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *gv = *ev;
+    MemoryProtect(gv);
   }
   void MOVEwSw(uint8_t *p) {
     // 10001100oosssmmm
@@ -1293,6 +1313,7 @@ private:
     pre_seg = nullptr;
     lv = rv;
     reg.IP += 2;
+    MemoryProtect(&lv);
   }
   void MOVeAXOv(uint8_t *p) {
     // Acc, MemOfs
@@ -1314,6 +1335,7 @@ private:
     pre_seg = nullptr;
     lv = rv;
     reg.IP += 2;
+    MemoryProtect(&lv);
   }
   void MOVeIv(uint8_t *p, uint16_t &lv) {
     uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
@@ -1324,11 +1346,13 @@ private:
     uint8_t *ev, *iv;
     _GetEvIv(p, ev, iv);
     *ev = *iv;
+    MemoryProtect(ev);
   }
   void MOVEvIv(uint8_t *p) {
     uint16_t *ev, *iv;
     _GetEvIv(p, ev, iv);
     *ev = *iv;
+    MemoryProtect(ev);
   }
   void MOVReg16Ib(uint8_t *p, uint8_t &lv) {
     uint8_t& rv = *reinterpret_cast<uint8_t*>(p);
@@ -1487,24 +1511,28 @@ private:
     _GetEvGv(p, eb, gb);
     *eb |= *gb;
     UpdateFlag(*eb);
+    MemoryProtect(eb);
   }
   void OREvGv(uint8_t *p) {
     uint16_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *eb |= *gb;
     UpdateFlag(*eb);
+    MemoryProtect(eb);
   }
   void ORGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *gb |= *eb;
     UpdateFlag(*gb);
+    MemoryProtect(gb);
   }
   void ORGvEv(uint8_t *p) {
     uint16_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *gb |= *eb;
     UpdateFlag(*gb);
+    MemoryProtect(gb);
   }
   void ORALIb(uint8_t *p) {
     reg.AL |= *p;
@@ -1531,6 +1559,7 @@ private:
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *ev = _SUB<int16_t, uint16_t>(*ev, (*gv), reg.get_flag(Flag::CF));
+    MemoryProtect(ev);
   }
   void SBBALIb(uint8_t *p) {
     // Acc, Imm
@@ -1543,16 +1572,19 @@ private:
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *eb = _SUB<int8_t, uint8_t>(*eb, *gb, reg.get_flag(Flag::CF));
+    MemoryProtect(eb);
   }
   void SBBGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *gb = _SUB<int8_t, uint8_t>(*gb, *eb, reg.get_flag(Flag::CF));
+    MemoryProtect(gb);
   }
   void SBBGvEv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *gv = _SUB<int16_t, uint16_t>(*gv, *ev, reg.get_flag(Flag::CF));
+    MemoryProtect(gv);
   }
   void SHEb1(uint8_t *p) {
     ModRM& modrm = read_oosssmmm(p);
@@ -1579,6 +1611,7 @@ private:
       (*ev) <<= (*iv);
     }
     UpdateFlag(*ev);
+    MemoryProtect(ev);
   }
   void SHEvIb(uint8_t *p) {
     ModRM& modrm = read_oosssmmm(p);
@@ -1606,6 +1639,7 @@ private:
         LOG(FATAL) << "Wrong modrm.REG: " << hex2str(modrm.REG);
     };
     UpdateFlag(*ev);
+    MemoryProtect(ev);
   }
   void STI() {
     reg.set_flag(Flag::IF);
@@ -1614,21 +1648,25 @@ private:
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *eb = _SUB<int8_t, uint8_t>(*eb, *gb);
+    MemoryProtect(eb);
   }
   void SUBEvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *ev = _SUB<int16_t, uint16_t>(*ev, *gv);
+    MemoryProtect(ev);
   }
   void SUBGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *gb = _SUB<int8_t, uint8_t>(*gb, *eb);
+    MemoryProtect(gb);
   }
   void SUBGvEv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *gv = _SUB<int16_t, uint16_t>(*gv, *ev);
+    MemoryProtect(gv);
   }
   void SUBeAXIv(uint8_t *p) {
     uint16_t &rv = *reinterpret_cast<uint16_t*>(p);
@@ -1656,12 +1694,14 @@ private:
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *ev = *gv;
+    MemoryProtect(ev);
   }
   void _MOVZXb(uint8_t *p) {
     uint16_t *lv;
     uint8_t *rv;
     _GetEvGv<uint8_t, uint16_t>(p, rv, lv);
     *lv = *rv;
+    MemoryProtect(lv);
   }
   void _JCNEAR(uint8_t *p) {
     if (reg.get_flag(Flag::CF))
@@ -1719,24 +1759,28 @@ private:
     _GetEvGv(p, eb, gb);
     *eb = (*eb) ^ (*gb);
     UpdateFlag(*eb);
+    MemoryProtect(eb);
   }
   void XOREvGv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *ev = (*ev) ^ (*gv);
     UpdateFlag(*ev);
+    MemoryProtect(ev);
   }
   void XORGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     *gb = (*gb) ^ (*eb);
     UpdateFlag(*gb);
+    MemoryProtect(gb);
   }
   void XORGvEv(uint8_t *p) {
     uint16_t *ev, *gv;
     _GetEvGv(p, ev, gv);
     *gv = (*gv) ^ (*ev);
     UpdateFlag(*gv);
+    MemoryProtect(gv);
   }
   void XORALIb(uint8_t *p) {
     uint8_t& lv = reg.AL;
@@ -1879,6 +1923,13 @@ private:
     const uint8_t *mem_p = static_cast<uint8_t*>((void*)&mem);
     if (p >= mem_p && p < mem_p + sizeof(mem)) return true;
     return false;
+  }
+  void MemoryProtect(void *p) {
+    uint8_t *start = &mem.get<uint8_t>(0);
+    if (start + base_addr <= p && p <= start + base_addr + 0xf75) {
+      PrintHistory();
+      LOG(FATAL) << "The protected memory " << hex2str((uint16_t)((uint8_t*)p - start) - base_addr) << " is changed.";
+    }
   }
 private:
   void ScreenINT() {
