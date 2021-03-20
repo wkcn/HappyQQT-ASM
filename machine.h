@@ -125,6 +125,8 @@ public:
     bind_var(BossHP);
     bind_var(PlayerNOHARM);
     bind_var(BossNOHARM);
+    CHECK_EQ(*BossHP, 5) << int(*BossHP);
+    CHECK_EQ(*PlayerHP, 1);
   }
   void run() {
     while (1) {
@@ -680,31 +682,6 @@ public:
       }
 
       reg.IP += 1;
-
-      use_32bits_mode = false;
-
-      /*
-      const uint16_t p_func_draw = SYMBOLS.at("DRAW");
-      const uint16_t p_func_draw_player = SYMBOLS.at("DrawPlayer");
-      const uint16_t p_func_ispassed = SYMBOLS.at("PlayerIsPassed");
-      const uint16_t p_func_ispassedend = SYMBOLS.at("PlayerIsPassedRtn");
-      if (reg.IP == p_func_draw_player + base_addr) {
-        // recording = true;
-      }
-      if (false && reg.IP == p_func_draw + base_addr) {
-        uint16_t draw_segment = mem.get<uint16_t>(base_addr + SYMBOLS.at("DrawSegment"));
-        if (draw_segment == 0x4800) {
-          uint16_t rx = mem.get<uint16_t>(base_addr + SYMBOLS.at("DrawRectW"));
-          uint16_t ry = mem.get<uint16_t>(base_addr + SYMBOLS.at("DrawRectH"));
-          uint16_t px = mem.get<uint16_t>(base_addr + SYMBOLS.at("PLAYER_X"));
-          uint16_t py = mem.get<uint16_t>(base_addr + SYMBOLS.at("PLAYER_Y"));
-          cout << hex2str(px) << ", " << hex2str(py) << endl;
-          cout << "DRAW: " << hex2str(draw_segment) << ":" << rx << ", " << ry << " | " << reg.CX << "!" << reg.DX << endl;
-          PrintHistory();
-        }
-      } 
-      */
-
     }
   }
 private:
@@ -1269,9 +1246,10 @@ private:
     if (!CheckMemValid(eb) || !CheckMemValid(gb)) {
       PrintState();
       PrintHistory();
-      LOG(FATAL) << "MEM ERROR";
+      LOG(WARNING) << "MEM ERROR";
+    } else {
+      *gb = *eb;
     }
-    *gb = *eb;
   }
   void MOVGvEv(uint8_t *p) {
     uint16_t *ev, *gv;
@@ -2023,17 +2001,14 @@ private:
     RET();
   }
   void QQTUpdate() {
+    Update();
     RET();
     uint8_t zero;
     POPb(zero);
     CHECK_EQ(zero, 0);
   }
   void QQTAI() {
-    // ai start
-    // copy game data to AI
     AI();
-    // copy AI to game data
-    // ai end
     RET();
     uint8_t zero;
     POPb(zero);
@@ -2103,8 +2078,7 @@ private:
   map<uint32_t, std::function<void()> > inject_functions;
   queue<uint8_t> key_buffer;
   time_point last_int08h_time;
-  bool use_32bits_mode;
+  bool use_32bits_mode = false;
   queue<string> history;
   array<uint8_t, 256> num_1bits;
 };
-
