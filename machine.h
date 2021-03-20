@@ -101,9 +101,9 @@ public:
       getline(fin, line);
     }
 
-    // CODE
+    // protect CODE
     mem.protect(base_addr + 0x17d, base_addr + 0xf75 + 1);
-    // RAND_SEED
+    // do not protect RAND_SEED
     mem.protect(base_addr + 0x30e, base_addr + 0x30e + 1, false);
   }
   void inject_qqt() {
@@ -136,8 +136,8 @@ public:
   void run() {
     while (1) {
       if (recording) {
-        string info = GetCurrentState();
-        // string info = hex2str(reg.IP - base_addr) + ":" + hex2str(mem.get<uint8_t>(reg.IP));
+        // string info = GetCurrentState();
+        string info = hex2str(reg.IP - base_addr) + ":" + hex2str(mem.get<uint8_t>(reg.IP)) + ":" + hex2str(reg.CS);
         history.push(info);
         if (history.size() > 100) history.pop();
       }
@@ -1028,7 +1028,7 @@ private:
       CHECK(modrm.REG == 0b001) << hex2str(*p) << "!" << hex2str(reg.CS) << ":" << hex2str(reg.IP);
       *v = _SUB<int8_t, uint8_t>(*v, 1);
     }
-    MemoryProtect(&v);
+    MemoryProtect(v);
   }
   void INCDECw(uint8_t *p) {
     ModRM &modrm = read_oosssmmm(p);
@@ -1041,7 +1041,7 @@ private:
       CHECK(modrm.REG == 0b001) << hex2str(*p) << "!" << hex2str(reg.CS) << ":" << hex2str(reg.IP);
       *v = _SUB<int16_t, uint16_t>(*v, 1);
     }
-    MemoryProtect(&v);
+    MemoryProtect(v);
   }
   void INT(uint8_t *p) {
     uint8_t id = *p;
@@ -1238,8 +1238,8 @@ private:
     int ip_update = _GetSegAndOffset(p, offset);
     CHECK(pre_seg);
     uint32_t addr = get_addr(*pre_seg, offset);
-    pre_seg = nullptr;
     ev = &mem.get<uT>(addr);
+    pre_seg = nullptr;
     return ip_update; 
   }
   template <typename eT, typename gT>
@@ -1267,11 +1267,7 @@ private:
   void MOVGbEb(uint8_t *p) {
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
-    if (!CheckMemValid(eb) || !CheckMemValid(gb)) {
-      LOG(WARNING) << "MEM ERROR";
-    } else {
-      *gb = *eb;
-    }
+    *gb = *eb;
     MemoryProtect(gb);
   }
   void MOVGvEv(uint8_t *p) {
@@ -1923,17 +1919,17 @@ private:
   }
 private:
   // memory
-  bool CheckMemValid(void *p) {
-    // [TODO] a temporary fix
+  void MemoryProtect(void *p, const string &msg = "") {
     const uint8_t *reg_p = static_cast<uint8_t*>((void*)&reg);
-    if (p >= reg_p && p < reg_p + sizeof(reg)) return true;
-    const uint8_t *mem_p = static_cast<uint8_t*>((void*)&mem);
-    if (p >= mem_p && p < mem_p + sizeof(mem)) return true;
-    return false;
-  }
-  void MemoryProtect(void *p) {
-    uint32_t *start = (uint32_t*)(void*)&mem.get<uint8_t>(0);
-    uint32_t addr = ((uint32_t*)p - start);
+    if (p >= reg_p && p < reg_p + sizeof(Registers)) return;
+    const uint8_t *mem_p = &mem.get<uint8_t>(0);
+    if (!(p >= mem_p && p < mem_p + 0x100000)) {
+      PrintHistory();
+      PrintState();
+      LOG(FATAL) << "Access Invalid Memory " << hex2str((uint8_t*)p - mem_p) << msg;
+    }
+    // memory
+    uint32_t addr = ((uint8_t*)p - mem_p);
     if (mem.is_protected(addr)) {
       PrintHistory();
       PrintState();
@@ -2124,7 +2120,7 @@ private:
 private:
   uint16_t *pre_seg = nullptr;
 private:
-  bool recording = false;
+  bool recording = true;
   Registers reg;
   Memory mem;
   unordered_map<uint32_t, string> source_code;
