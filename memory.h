@@ -16,6 +16,15 @@ public:
   T& get(uint16_t seg, uint16_t offset) {
     return get<T>(get_addr(seg, offset));
   }
+  bool is_protected(uint16_t addr) {
+    return protected_[addr];
+  }
+  void protect(uint16_t start, uint16_t end, bool v=true) {
+    for (int i = start; i < end; ++i) {
+      protected_[i] = v;
+    }
+  }
 private:
   uint8_t memory[0x100000];
+  bool protected_[0x100000]{0};
 };

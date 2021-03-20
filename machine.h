@@ -100,6 +100,11 @@ public:
       read_deasm(line);
       getline(fin, line);
     }
+
+    // CODE
+    mem.protect(base_addr + 0x17d, base_addr + 0xf75 + 1);
+    // RAND_SEED
+    mem.protect(base_addr + 0x30e, base_addr + 0x30e + 1, false);
   }
   void inject_qqt() {
     mem.get(base_addr + 0x17d) = INJECT_FUNC_CODE;
@@ -1926,9 +1931,10 @@ private:
   }
   void MemoryProtect(void *p) {
     uint8_t *start = &mem.get<uint8_t>(0);
-    if (start + base_addr <= p && p <= start + base_addr + 0xf75) {
+    uint16_t addr = ((uint8_t*)p - start);
+    if (mem.is_protected(addr)) {
       PrintHistory();
-      LOG(FATAL) << "The protected memory " << hex2str((uint16_t)((uint8_t*)p - start) - base_addr) << " is changed.";
+      LOG(FATAL) << "The protected memory " << hex2str(addr - base_addr) << " is changed.";
     }
   }
 private:
