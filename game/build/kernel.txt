@@ -11,7 +11,7 @@
 00000017  B0FF              mov al,0xff
 00000019  EE                out dx,al
 0000001A  B1FF              mov cl,0xff
-0000001C  BAC803            mov dx,0x3c8
+0000001C  BAC803            mov dx,0x3c8 // color.asm begin
 0000001F  88C8              mov al,cl
 00000021  EE                out dx,al
 00000022  BAC903            mov dx,0x3c9
@@ -27,7 +27,7 @@
 00000036  C0E004            shl al,byte 0x4
 00000039  2430              and al,0x30
 0000003B  EE                out dx,al
-0000003C  E2DE              loop 0x1c
+0000003C  E2DE              loop 0x1c // color.asm end
 0000003E  2EC706777FFBA8    mov word [cs:0x7f77],0xa8fb
 00000045  2EC7067B7F0040    mov word [cs:0x7f7b],0x4000
 0000004C  2EC706797F0000    mov word [cs:0x7f79],0x0
@@ -95,8 +95,8 @@
 0000016E  75F8              jnz 0x168
 00000170  E89D01            call 0x310
 00000173  EBC8              jmp short 0x13d
-00000175  EBFE              jmp short 0x175
-00000177  0000              add [bx+si],al
+00000175  EBFE              jmp short 0x175 // jmp $
+00000177  0000              add [bx+si],al // disk.asm start
 00000179  0000              add [bx+si],al
 0000017B  0030              add [bx+si],dh
 0000017D  C7062C801300      mov word [0x802c],0x13
@@ -283,7 +283,7 @@
 0000030B  59                pop cx
 0000030C  5A                pop dx
 0000030D  C3                ret
-0000030E  0000              add [bx+si],al
+0000030E  0000              add [bx+si],al // rand.asm end
 00000310  B400              mov ah,0x0
 00000312  CD16              int 0x16
 00000314  3D2039            cmp ax,0x3920
