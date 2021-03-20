@@ -18,7 +18,10 @@ const int WINDOW_WIDTH = 320, WINDOW_HEIGHT = 200;
 const int WINDOW_SIZE = WINDOW_WIDTH * WINDOW_HEIGHT;
 const int MAX_FPS = 60;
 const int UPDATE_GRAPH_INTERVAL = int(1000.0 / MAX_FPS);
-array<uint8_t, WINDOW_WIDTH * WINDOW_HEIGHT * 3> VIDEO_BUFFER;
+struct RGB {
+  uint8_t rgb[3];
+};
+RGB VIDEO_BUFFER[WINDOW_HEIGHT][WINDOW_WIDTH];
 uint16_t KEY_BOARD_MAP[256];
 
 class GUI;
@@ -45,12 +48,12 @@ public:
   }
   void set_palette_index(int index) {
     CHECK_GE(index, 0);
-    CHECK_LT(index, palette.size());
+    CHECK_LT(index, 256);
     palette_index = index;
     palette_sub_index = 0;
   }
   void set_palette_value(uint8_t value) {
-    palette[palette_index][palette_sub_index++] = value;
+    palette[palette_index].rgb[palette_sub_index++] = value << 2;
   }
   uint16_t get_key() {
     unique_lock<mutex> lock(key_mutex);
@@ -67,7 +70,7 @@ public:
     return cur_key != 0;
   }
 public:
-  array<array<uint8_t, 3>, 256> palette;
+  RGB palette[256];
 private:
   int palette_index = 0;
   int palette_sub_index = 0;
@@ -83,17 +86,14 @@ void Display() {
 
   uint8_t *video_addr = GUI_P->get_video_addr();
   if (video_addr) {
-    _Pragma("omp parallel for")
-    for (int i = 0; i < WINDOW_SIZE; ++i) {
-      const int y = WINDOW_HEIGHT - 1 - (i / WINDOW_WIDTH);
-      const int x = i % WINDOW_WIDTH;
-      const int k = y * WINDOW_WIDTH + x;
-      VIDEO_BUFFER[k*3+0] = GUI_P->palette[video_addr[i]][0] << 2;
-      VIDEO_BUFFER[k*3+1] = GUI_P->palette[video_addr[i]][1] << 2;
-      VIDEO_BUFFER[k*3+2] = GUI_P->palette[video_addr[i]][2] << 2;
+    int i = 0;
+    for (int y = WINDOW_HEIGHT - 1; y >= 0; --y) {
+      for (int x = 0; x < WINDOW_WIDTH; ++x) {
+        VIDEO_BUFFER[y][x] = GUI_P->palette[video_addr[i++]];
+      }
     }
   }
-  glDrawPixels(WINDOW_WIDTH, WINDOW_HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, VIDEO_BUFFER.data());
+  glDrawPixels(WINDOW_WIDTH, WINDOW_HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, (uint8_t*)VIDEO_BUFFER);
   glPixelZoom(RATIO, RATIO);
 	glutSwapBuffers();
 }
