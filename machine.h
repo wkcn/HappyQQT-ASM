@@ -667,9 +667,8 @@ public:
           INCDECw(p+1);
           break;
         default:
-          LOG(FATAL) << "Unknown OpCode: [" << hex2str(reg.CS) << ":" << hex2str(reg.IP) << "=" << hex2str(addr - base_addr) << "]" << hex2str(*p);
-          PrintState();
           PrintHistory();
+          LOG(FATAL) << "Unknown OpCode: [" << hex2str(reg.CS) << ":" << hex2str(reg.IP) << "=" << hex2str(addr - base_addr) << "]" << hex2str(*p);
       }
 
       time_point cur_time = get_time_now();
@@ -1196,7 +1195,7 @@ private:
       } else if (modrm.MOD == 0b10) { 
         offset += *reinterpret_cast<uint16_t*>(p+1);
         ip_update += 2;
-      } else CHECK(modrm.MOD == 0b00) << hex2str(reg.CS) << ":" << hex2str(reg.IP) << ", " << hex2str(reg.IP - 0x7e00) << ", " << hex2str(*p);
+      } else CHECK(modrm.MOD == 0b00) << hex2str(reg.CS) << ":" << hex2str(reg.IP) << ", " << hex2str(reg.IP - base_addr) << ", " << hex2str(*p);
     }
     reg.IP += ip_update;
     return ip_update;
@@ -1244,8 +1243,6 @@ private:
     uint8_t *eb, *gb;
     _GetEvGv(p, eb, gb);
     if (!CheckMemValid(eb) || !CheckMemValid(gb)) {
-      PrintState();
-      PrintHistory();
       LOG(WARNING) << "MEM ERROR";
     } else {
       *gb = *eb;
@@ -2023,7 +2020,7 @@ private:
     cout << endl;
   }
   string GetCurrentState() {
-    return hex2str(reg.IP - base_addr);
+    return hex2str(reg.IP - base_addr) + ":" + hex2str(mem.get<uint8_t>(reg.IP));
     static Registers last_register;
     uint32_t addr = get_addr(reg.CS, reg.IP);
     uint32_t code_addr = addr - base_addr;
@@ -2069,7 +2066,7 @@ private:
 private:
   uint16_t *pre_seg = nullptr;
 private:
-  bool recording = false;
+  bool recording = true;
   Registers reg;
   Memory mem;
   unordered_map<uint32_t, string> source_code;
