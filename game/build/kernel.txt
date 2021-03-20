@@ -1290,11 +1290,11 @@
 00000E70  E801F7            call 0x574
 00000E73  E8F0F5            call 0x466
 00000E76  C3                ret
-00000E77  BE7CA0            mov si,0xa07c
+00000E77  BE7CA0            mov si,0xa07c // UpdatePower
 00000E7A  B9F000            mov cx,0xf0
-00000E7D  2E803C00          cmp byte [cs:si],0x0
-00000E81  7434              jz 0xeb7
-00000E83  2EFF4C03          dec word [cs:si+0x3]
+00000E7D  2E803C00          cmp byte [cs:si],0x0 // UpdatePowerIn
+00000E81  7434              jz 0xeb7 // je NextPower
+00000E83  2EFF4C03          dec word [cs:si+0x3]  // dec word[cs:si + _COUNT_P_OFFSET]
 00000E87  752B              jnz 0xeb4
 00000E89  52                push dx
 00000E8A  51                push cx
@@ -1317,7 +1317,7 @@
 00000EB0  2EC60400          mov byte [cs:si],0x0
 00000EB4  E83FF6            call 0x4f6
 00000EB7  83C609            add si,byte +0x9
-00000EBA  E2C1              loop 0xe7d
+00000EBA  E2C1              loop 0xe7d  // loop UpdatePowerIn
 00000EBC  C3                ret
 00000EBD  2E803E64A900      cmp byte [cs:0xa964],0x0
 00000EC3  0F84A800          jz near 0xf6f
