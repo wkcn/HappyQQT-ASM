@@ -65,7 +65,7 @@ void PrintInstruction(Instruction ins) {
 
 class Machine {
 public:
-  const uint16_t base_addr = 0x7e00;
+  const uint32_t base_addr = 0x7e00;
   Machine() {
     memset(&reg, 0, sizeof(reg));
     reg.FR = 512;
@@ -136,7 +136,9 @@ public:
   void run() {
     while (1) {
       if (recording) {
-        history.push(GetCurrentState());
+        string info = GetCurrentState();
+        // string info = hex2str(reg.IP - base_addr) + ":" + hex2str(mem.get<uint8_t>(reg.IP));
+        history.push(info);
         if (history.size() > 100) history.pop();
       }
 
@@ -1930,10 +1932,11 @@ private:
     return false;
   }
   void MemoryProtect(void *p) {
-    uint8_t *start = &mem.get<uint8_t>(0);
-    uint16_t addr = ((uint8_t*)p - start);
+    uint32_t *start = (uint32_t*)(void*)&mem.get<uint8_t>(0);
+    uint32_t addr = ((uint32_t*)p - start);
     if (mem.is_protected(addr)) {
       PrintHistory();
+      PrintState();
       LOG(FATAL) << "The protected memory " << hex2str(addr - base_addr) << " is changed.";
     }
   }
@@ -2077,7 +2080,6 @@ private:
     cout << endl;
   }
   string GetCurrentState() {
-    return hex2str(reg.IP - base_addr) + ":" + hex2str(mem.get<uint8_t>(reg.IP));
     static Registers last_register;
     uint32_t addr = get_addr(reg.CS, reg.IP);
     uint32_t code_addr = addr - base_addr;
@@ -2089,7 +2091,6 @@ private:
       if (value == old) return hex2str(value);
       return "\033[31m" + hex2str(value) + "\033[0m";
     };
-    return "ADDR:" + hex2str(code_addr);
 
 #define  REG_STATE(name) reg_state(reg.name, last_register.name)
 
@@ -2123,7 +2124,7 @@ private:
 private:
   uint16_t *pre_seg = nullptr;
 private:
-  bool recording = true;
+  bool recording = false;
   Registers reg;
   Memory mem;
   unordered_map<uint32_t, string> source_code;
