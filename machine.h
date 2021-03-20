@@ -22,7 +22,7 @@ using namespace std;
 #include "gui.h"
 #include "symbol.h"
 
-const int UpdateTimes = 60;
+const int UpdateTimes = 40;
 using time_point = std::chrono::steady_clock::time_point;
 using ms_type = std::chrono::duration<int, ratio<1, 1000> >;
 using milliseconds = std::chrono::milliseconds;
