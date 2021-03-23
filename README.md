@@ -6,9 +6,9 @@ An Intel 8086 Emulator for QQTang-ASM.
 
 ## Control 
 - Move the player
-    WASD
+    - WASD
 - Enter game
-    space
+    - space
 
 ## Requirement
 - G++ with pthread
