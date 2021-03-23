@@ -1,6 +1,8 @@
 # HappyQQT-ASM
 An Intel 8086 Emulator for QQTang-ASM.
 
+Game resource except of the title picture comes from [Tencent QQTang](https://qqtang.qq.com/).
+
 ![](./pic/title.png)
 ![](./pic/screenshot1.png)
 
