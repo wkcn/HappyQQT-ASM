@@ -66,6 +66,7 @@ void PrintInstruction(Instruction ins) {
 class Machine {
 public:
   const uint32_t base_addr = 0x7e00;
+  GUI gui;
   Machine() {
     memset(&reg, 0, sizeof(reg));
     reg.FR = 512;
@@ -2129,7 +2130,6 @@ private:
   Registers reg;
   Memory mem;
   unordered_map<uint32_t, string> source_code;
-  GUI gui;
   const char hexch[16] = {'0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F'};
   map<uint32_t, std::function<void()> > inject_functions;
   queue<uint8_t> key_buffer;

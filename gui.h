@@ -1,6 +1,14 @@
 #pragma once
+#define GL_SILENCE_DEPRECATION
+
+#if defined(__APPLE__)
+#include <GLUT/glut.h>
+#include <OpenGL/glu.h>
+#else
 #include <GL/glut.h>
 #include <GL/glu.h>
+#endif
+
 #include <array>
 #include <iostream>
 #include <vector>
@@ -31,7 +39,7 @@ void gui_main_func(GUI*);
 
 class GUI {
 public:
-  GUI() : gui_thread(gui_main_func, this) {
+  GUI() {
     memset(KEY_BOARD_MAP, 0, sizeof(KEY_BOARD_MAP));
     KEY_BOARD_MAP[' '] = 0x3920;
     KEY_BOARD_MAP['w'] = 0x4800;
@@ -75,7 +83,6 @@ private:
   int palette_index = 0;
   int palette_sub_index = 0;
   uint8_t *video_addr = nullptr;
-  thread gui_thread;
   uint16_t cur_key;
   mutex key_mutex;
   condition_variable key_cv;

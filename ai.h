@@ -58,7 +58,7 @@ dw *PlayerNOHARM, *BossNOHARM;
 
 uint16_t costMap[WinRow][WinCol];
 
-__attribute__((regparm(2)))
+// __attribute__((regparm(2)))
 uint8_t IsPassed(uint16_t x, uint16_t y){
 	if (x >= WinCol)return 0;
 	if (y >= WinRow)return 0;
@@ -67,7 +67,7 @@ uint8_t IsPassed(uint16_t x, uint16_t y){
 	return 1;
 }
 
-__attribute__((regparm(3)))
+// __attribute__((regparm(3)))
 void PowerGo(Bomb *b, uint16_t ax, uint16_t ay){
 	db power = b->power;
 	uint16_t x = (b->x + 0x80) >> 8;
@@ -81,7 +81,7 @@ void PowerGo(Bomb *b, uint16_t ax, uint16_t ay){
 	}	
 }
 
-__attribute__((regparm(2)))
+// __attribute__((regparm(2)))
 uint16_t GetCost(uint16_t x, uint16_t y){
 	if (x >= WinCol)return 0;
 	if (y >= WinRow)return 0;
