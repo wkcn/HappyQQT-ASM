@@ -121,6 +121,27 @@ void Keyboard(unsigned char key, int x,int y){
   }
 }
 
+void SpecialKeys(int key, int x, int y) {
+  uint16_t code = 0;
+  switch (key) {
+    case GLUT_KEY_UP:
+      code = 0x4800; // Up arrow
+      break;
+    case GLUT_KEY_DOWN:
+      code = 0x5000; // Down arrow
+      break;
+    case GLUT_KEY_LEFT:
+      code = 0x4b00; // Left arrow
+      break;
+    case GLUT_KEY_RIGHT:
+      code = 0x4d00; // Right arrow
+      break;
+    default:
+      return; // Ignore other special keys
+  }
+  GUI_P->set_key(code);
+}
+
 void gui_main_func(GUI *gui) {
   CHECK(GUI_P == nullptr);
   GUI_P = gui;
@@ -134,6 +155,7 @@ void gui_main_func(GUI *gui) {
   glutDisplayFunc(&Display);
 	glutReshapeFunc(Reshape);
 	glutKeyboardFunc(&Keyboard);
+  glutSpecialFunc(SpecialKeys);
 	glutIdleFunc(&Idle);
   glutMainLoop();
 }
