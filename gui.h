@@ -116,6 +116,9 @@ void Reshape(int w, int h) {
 }
 
 void Keyboard(unsigned char key, int x, int y) {
+  if (key == 27) {
+    exit(0);  // Exit on ESC key
+  }
   uint16_t code = KEY_BOARD_MAP[key];
   if (code) {
     GUI_P->set_key(code);
