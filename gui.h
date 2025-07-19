@@ -5,21 +5,22 @@
 #include <GLUT/glut.h>
 #include <OpenGL/glu.h>
 #else
-#include <GL/glut.h>
 #include <GL/glu.h>
+#include <GL/glut.h>
 #endif
 
 #include <array>
-#include <iostream>
-#include <vector>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
-#include <thread>
+#include <iostream>
 #include <mutex>
-#include <condition_variable>
+#include <thread>
+#include <vector>
 using namespace std;
-#include "logging.h"
 #include <unistd.h>
+
+#include "logging.h"
 
 const int RATIO = 4;
 const int WINDOW_WIDTH = 320, WINDOW_HEIGHT = 200;
@@ -35,10 +36,10 @@ uint16_t KEY_BOARD_MAP[256];
 class GUI;
 GUI *GUI_P = nullptr;
 
-void gui_main_func(GUI*);
+void gui_main_func(GUI *);
 
 class GUI {
-public:
+ public:
   GUI() {
     memset(KEY_BOARD_MAP, 0, sizeof(KEY_BOARD_MAP));
     KEY_BOARD_MAP[' '] = 0x3920;
@@ -49,11 +50,9 @@ public:
     cur_key = 0;
   }
   void set_video_addr(void *addr) {
-    video_addr = reinterpret_cast<uint8_t*>(addr);
+    video_addr = reinterpret_cast<uint8_t *>(addr);
   }
-  uint8_t* get_video_addr() {
-    return video_addr;
-  }
+  uint8_t *get_video_addr() { return video_addr; }
   void set_palette_index(int index) {
     CHECK_GE(index, 0);
     CHECK_LT(index, 256);
@@ -65,7 +64,7 @@ public:
   }
   uint16_t get_key() {
     unique_lock<mutex> lock(key_mutex);
-    key_cv.wait(lock, [&](){return cur_key != 0;});
+    key_cv.wait(lock, [&]() { return cur_key != 0; });
     uint16_t key = cur_key;
     cur_key = 0;
     return key;
@@ -74,12 +73,12 @@ public:
     cur_key = key;
     key_cv.notify_one();
   }
-  bool check_key() {
-    return cur_key != 0;
-  }
-public:
+  bool check_key() { return cur_key != 0; }
+
+ public:
   RGB palette[256];
-private:
+
+ private:
   int palette_index = 0;
   int palette_sub_index = 0;
   uint8_t *video_addr = nullptr;
@@ -89,7 +88,7 @@ private:
 };
 
 void Display() {
-	glClear(GL_COLOR_BUFFER_BIT);
+  glClear(GL_COLOR_BUFFER_BIT);
 
   uint8_t *video_addr = GUI_P->get_video_addr();
   if (video_addr) {
@@ -100,21 +99,23 @@ void Display() {
       }
     }
   }
-  glDrawPixels(WINDOW_WIDTH, WINDOW_HEIGHT, GL_RGB, GL_UNSIGNED_BYTE, (uint8_t*)VIDEO_BUFFER);
+  glDrawPixels(WINDOW_WIDTH, WINDOW_HEIGHT, GL_RGB, GL_UNSIGNED_BYTE,
+               (uint8_t *)VIDEO_BUFFER);
   glPixelZoom(RATIO, RATIO);
-	glutSwapBuffers();
+  glutSwapBuffers();
 }
 
-void Idle(){
-	usleep(UPDATE_GRAPH_INTERVAL);
-	Display();
+void Idle() {
+  usleep(UPDATE_GRAPH_INTERVAL);
+  Display();
 }
 
-void Reshape(int w, int h){
-	glViewport (0, 0, (GLsizei) WINDOW_WIDTH * RATIO, (GLsizei) WINDOW_HEIGHT * RATIO);
+void Reshape(int w, int h) {
+  glViewport(0, 0, (GLsizei)WINDOW_WIDTH * RATIO,
+             (GLsizei)WINDOW_HEIGHT * RATIO);
 }
 
-void Keyboard(unsigned char key, int x,int y){
+void Keyboard(unsigned char key, int x, int y) {
   uint16_t code = KEY_BOARD_MAP[key];
   if (code) {
     GUI_P->set_key(code);
@@ -125,19 +126,19 @@ void SpecialKeys(int key, int x, int y) {
   uint16_t code = 0;
   switch (key) {
     case GLUT_KEY_UP:
-      code = 0x4800; // Up arrow
+      code = 0x4800;  // Up arrow
       break;
     case GLUT_KEY_DOWN:
-      code = 0x5000; // Down arrow
+      code = 0x5000;  // Down arrow
       break;
     case GLUT_KEY_LEFT:
-      code = 0x4b00; // Left arrow
+      code = 0x4b00;  // Left arrow
       break;
     case GLUT_KEY_RIGHT:
-      code = 0x4d00; // Right arrow
+      code = 0x4d00;  // Right arrow
       break;
     default:
-      return; // Ignore other special keys
+      return;  // Ignore other special keys
   }
   GUI_P->set_key(code);
 }
@@ -153,10 +154,9 @@ void gui_main_func(GUI *gui) {
   glutInitWindowSize(WINDOW_WIDTH * RATIO, WINDOW_HEIGHT * RATIO);
   int globalWindow = glutCreateWindow("Happy QQT");
   glutDisplayFunc(&Display);
-	glutReshapeFunc(Reshape);
-	glutKeyboardFunc(&Keyboard);
+  glutReshapeFunc(Reshape);
+  glutKeyboardFunc(&Keyboard);
   glutSpecialFunc(SpecialKeys);
-	glutIdleFunc(&Idle);
+  glutIdleFunc(&Idle);
   glutMainLoop();
 }
-

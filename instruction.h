@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-union Instruction{
+union Instruction {
   struct {
     uint8_t RM : 3;
     uint8_t REG : 3;

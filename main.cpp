@@ -1,10 +1,9 @@
-#include "machine.h"
 #include <thread>
+
+#include "machine.h"
 using namespace std;
 
-void run_machine_func(Machine *machine) {
-  machine->run();
-}
+void run_machine_func(Machine *machine) { machine->run(); }
 
 int main(int argc, char *argv[]) {
   Machine machine;
