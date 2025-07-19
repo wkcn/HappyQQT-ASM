@@ -156,18 +156,18 @@ void AI(){
 	if (costF[2] == 0){
 		//相当安全
 		//跟随角色
-		Player *r = &Players[0];
+    Player *r = &Players[0];
 		int q = 0;
-		if (r->y > ai->y){
+		if (r->y > ai->y + 0x80){
 			dir[q++] = 0;
 		}
-		if (r->x < ai->x){
+		if (r->x < ai->x - 0x80){
 			dir[q++] = 1;
 		}
-		if (r->x > ai->x){
+		if (r->x > ai->x + 0x80){
 			dir[q++] = 2;
 		}
-		if (r->y < ai->y){
+		if (r->y < ai->y - 0x80){
 			dir[q++] = 3;
 		}
 	}
