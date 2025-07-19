@@ -23,14 +23,15 @@ using namespace std;
 #include "logging.h"
 
 const int RATIO = 4;
-const int WINDOW_WIDTH = 320, WINDOW_HEIGHT = 200;
-const int WINDOW_SIZE = WINDOW_WIDTH * WINDOW_HEIGHT;
+const int VIDEO_WIDTH = 320, VIDEO_HEIGHT = 200;
+int WINDOW_WIDTH = VIDEO_WIDTH * RATIO;
+int WINDOW_HEIGHT = VIDEO_HEIGHT * RATIO;
 const int MAX_FPS = 60;
 const int UPDATE_GRAPH_INTERVAL = int(1000.0 / MAX_FPS);
 struct RGB {
   uint8_t rgb[3];
 };
-RGB VIDEO_BUFFER[WINDOW_HEIGHT][WINDOW_WIDTH];
+RGB VIDEO_BUFFER[VIDEO_HEIGHT][VIDEO_WIDTH];
 uint16_t KEY_BOARD_MAP[256];
 
 class GUI;
@@ -93,15 +94,17 @@ void Display() {
   uint8_t *video_addr = GUI_P->get_video_addr();
   if (video_addr) {
     int i = 0;
-    for (int y = WINDOW_HEIGHT - 1; y >= 0; --y) {
-      for (int x = 0; x < WINDOW_WIDTH; ++x) {
+    for (int y = VIDEO_HEIGHT - 1; y >= 0; --y) {
+      for (int x = 0; x < VIDEO_WIDTH; ++x) {
         VIDEO_BUFFER[y][x] = GUI_P->palette[video_addr[i++]];
       }
     }
   }
-  glDrawPixels(WINDOW_WIDTH, WINDOW_HEIGHT, GL_RGB, GL_UNSIGNED_BYTE,
+  glDrawPixels(VIDEO_WIDTH, VIDEO_HEIGHT, GL_RGB, GL_UNSIGNED_BYTE,
                (uint8_t *)VIDEO_BUFFER);
-  glPixelZoom(RATIO, RATIO);
+  float ratio = min(WINDOW_WIDTH / (float)VIDEO_WIDTH,
+                    WINDOW_HEIGHT / (float)VIDEO_HEIGHT);
+  glPixelZoom(ratio, ratio);
   glutSwapBuffers();
 }
 
@@ -111,8 +114,8 @@ void Idle() {
 }
 
 void Reshape(int w, int h) {
-  glViewport(0, 0, (GLsizei)WINDOW_WIDTH * RATIO,
-             (GLsizei)WINDOW_HEIGHT * RATIO);
+  WINDOW_WIDTH = w;
+  WINDOW_HEIGHT = h;
 }
 
 void Keyboard(unsigned char key, int x, int y) {
@@ -154,7 +157,7 @@ void gui_main_func(GUI *gui) {
   glutInit(&argc, argv);
   glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
   glutInitWindowPosition(0, 0);
-  glutInitWindowSize(WINDOW_WIDTH * RATIO, WINDOW_HEIGHT * RATIO);
+  glutInitWindowSize(WINDOW_WIDTH, WINDOW_HEIGHT);
   int globalWindow = glutCreateWindow("Happy QQT");
   glutDisplayFunc(&Display);
   glutReshapeFunc(Reshape);
