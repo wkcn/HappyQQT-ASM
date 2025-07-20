@@ -20,6 +20,7 @@ using namespace std;
 #include "logging.h"
 #include "memory.h"
 #include "register.h"
+#include "shared_memory.h"
 #include "symbol.h"
 
 const int UpdateTimes = 40;
@@ -65,7 +66,9 @@ class Machine {
  public:
   const uint32_t base_addr = 0x7e00;
   GUI gui;
-  Machine() {
+  Machine() : shared_mem("/happyqqt_shm", 0x100000) {
+    // mem.init(new uint8_t[0x100000]);
+    mem.init(shared_mem.data());
     memset(&reg, 0, sizeof(reg));
     reg.FR = 512;
     gui.set_video_addr(&(mem.get(0xa000, 0)));
@@ -2133,6 +2136,7 @@ class Machine {
   bool recording = false;
   Registers reg;
   Memory mem;
+  SharedMemory shared_mem;
   unordered_map<uint32_t, string> source_code;
   const char hexch[16] = {'0', '1', '2', '3', '4', '5', '6', '7',
                           '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
