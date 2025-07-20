@@ -23,7 +23,11 @@ class Memory {
     }
   }
 
+  Memory() : memory(nullptr) {}
+
+  void init(void* mem) { memory = static_cast<uint8_t*>(mem); }
+
  private:
-  uint8_t memory[0x100000];
+  uint8_t* memory;  // point to uint8_t[0x100000];
   bool protected_[0x100000]{0};
 };
