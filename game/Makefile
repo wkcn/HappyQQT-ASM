@@ -5,12 +5,12 @@ SOURCE_DIR = source
 RESOURCE_DIR = res
 IMAGE_NAME= HappyQQT.img
 
-CC = gcc
-CFLAGS = -Iinclude -c -m16 -march=i386 -masm=intel -nostdlib -ffreestanding -mpreferred-stack-boundary=2 -lgcc -shared -fno-pie -fno-stack-protector
+CC = x86_64-elf-gcc
+CFLAGS = -Iinclude -c -m16 -march=i386 -masm=intel -nostdlib -ffreestanding -mpreferred-stack-boundary=2 -fno-pie -fno-stack-protector
 
 AS = nasm
 ASFLAGS = -Iinclude/
-LD = ld
+LD = x86_64-elf-ld
 LDFLAGS = -m elf_i386 -N
 
 #如果不加-fda, 虽然能读Loader, 但无法读扇区:-(
@@ -35,20 +35,26 @@ write_image: loadknl.bin
 	dd if=$(BUILD_DIR)/loadknl.bin of=$(IMAGE_NAME) conv=notrunc
 
 write_knl: kernel.bin
-	sudo mount -o loop $(IMAGE_NAME) disk/
+	hdiutil attach -imagekey diskimage-class=CRawDiskImage -nomount $(IMAGE_NAME) | awk '{print $$1}' > /tmp/hqt_dev.txt
+	sudo mkdir -p $(DISK_DIR)
+	sudo mount -t msdos $$(cat /tmp/hqt_dev.txt) $(DISK_DIR)/
 	sudo cp $(BUILD_DIR)/kernel.bin $(DISK_DIR)/
 	sudo umount $(DISK_DIR)/
+	hdiutil detach $$(cat /tmp/hqt_dev.txt)
 
 build_progs: mappic.res huoying.res football.res people.res boss.res power.res \
 			win.res lose.res title.res
 
-	sudo mount -o loop $(IMAGE_NAME) disk/
+	hdiutil attach -imagekey diskimage-class=CRawDiskImage -nomount $(IMAGE_NAME) | awk '{print $$1}' > /tmp/hqt_dev.txt
+	sudo mkdir -p $(DISK_DIR)
+	sudo mount -t msdos $$(cat /tmp/hqt_dev.txt) $(DISK_DIR)/
 
 	for name in $^; do\
 		sudo cp $(BUILD_DIR)/$$name $(DISK_DIR)/;\
 	done
 
 	sudo umount $(DISK_DIR)/
+	hdiutil detach $$(cat /tmp/hqt_dev.txt)
 
 loadknl.bin: $(SOURCE_DIR)/loadknl.asm
 	$(AS) $(ASFLAGS) -f bin $^ -o $(BUILD_DIR)/$@
