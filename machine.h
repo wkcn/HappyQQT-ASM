@@ -140,6 +140,11 @@ class Machine {
     CHECK_EQ(*PlayerHP, 1);
   }
   void run() {
+    uint64_t inst_counter = 0;
+    uint64_t ips_counter = 0;
+    int int08_counter = 0;
+    time_point ips_timer = get_time_now();
+    time_point frame_start = get_time_now();
     while (1) {
       if (recording) {
         // string info = GetCurrentState();
@@ -692,10 +697,34 @@ class Machine {
           std::chrono::duration_cast<milliseconds>(cur_time - last_int08h_time)
               .count();
       if (diff_ms >= 1000 / UpdateTimes) {
+        time_point frame_end = get_time_now();
+        double frame_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+                              frame_end - frame_start)
+                              .count() /
+                          1000.0;
+        gui.profile_frame_ms.store(frame_ms, std::memory_order_relaxed);
+        frame_start = frame_end;
+        int08_counter++;
+
         if (CALL_INT(0x08)) {
           reg.IP -= 1;
         }
         last_int08h_time = cur_time;
+      }
+
+      // Update IPS every second
+      inst_counter++;
+      ips_counter++;
+      int ips_diff = std::chrono::duration_cast<milliseconds>(
+                         cur_time - ips_timer)
+                         .count();
+      if (ips_diff >= 1000) {
+        gui.profile_ips.store(ips_counter, std::memory_order_relaxed);
+        gui.profile_inst_count.store(inst_counter, std::memory_order_relaxed);
+        gui.profile_int08_fps.store(int08_counter, std::memory_order_relaxed);
+        ips_counter = 0;
+        int08_counter = 0;
+        ips_timer = cur_time;
       }
 
       reg.IP += 1;
@@ -2140,7 +2169,7 @@ class Machine {
   unordered_map<uint32_t, string> source_code;
   const char hexch[16] = {'0', '1', '2', '3', '4', '5', '6', '7',
                           '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
-  map<uint32_t, std::function<void()>> inject_functions;
+  unordered_map<uint32_t, std::function<void()>> inject_functions;
   queue<uint8_t> key_buffer;
   time_point last_int08h_time;
   bool use_32bits_mode = false;

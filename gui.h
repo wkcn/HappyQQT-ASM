@@ -10,8 +10,10 @@
 #endif
 
 #include <array>
+#include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <iostream>
 #include <mutex>
@@ -76,6 +78,12 @@ class GUI {
   }
   bool check_key() { return cur_key != 0; }
 
+  // Profiling data (written by machine thread, read by GUI thread)
+  std::atomic<uint64_t> profile_ips{0};           // Instructions per second
+  std::atomic<uint64_t> profile_inst_count{0};    // Total instructions executed
+  std::atomic<double>   profile_frame_ms{0.0};    // Time per INT 0x08 frame (ms)
+  std::atomic<int>      profile_int08_fps{0};     // INT 0x08 calls per second
+
  public:
   RGB palette[256];
 
@@ -87,6 +95,13 @@ class GUI {
   mutex key_mutex;
   condition_variable key_cv;
 };
+
+void DrawText(float x, float y, const char *text) {
+  glRasterPos2f(x, y);
+  for (const char *c = text; *c != '\0'; ++c) {
+    glutBitmapCharacter(GLUT_BITMAP_9_BY_15, *c);
+  }
+}
 
 void Display() {
   glClear(GL_COLOR_BUFFER_BIT);
@@ -100,11 +115,61 @@ void Display() {
       }
     }
   }
+
+  // Compute aspect-ratio-preserving viewport
+  float scale_x = WINDOW_WIDTH / (float)VIDEO_WIDTH;
+  float scale_y = WINDOW_HEIGHT / (float)VIDEO_HEIGHT;
+  float scale = min(scale_x, scale_y);
+  int vp_w = (int)(VIDEO_WIDTH * scale);
+  int vp_h = (int)(VIDEO_HEIGHT * scale);
+  int vp_x = (WINDOW_WIDTH - vp_w) / 2;
+  int vp_y = (WINDOW_HEIGHT - vp_h) / 2;
+
+  // Draw game image scaled to fit window with correct aspect ratio
+  glViewport(vp_x, vp_y, vp_w, vp_h);
+  glMatrixMode(GL_PROJECTION);
+  glLoadIdentity();
+  glOrtho(0, VIDEO_WIDTH, 0, VIDEO_HEIGHT, -1, 1);
+  glMatrixMode(GL_MODELVIEW);
+  glLoadIdentity();
+  glPixelZoom(1.0f, 1.0f);
+  glRasterPos2i(0, 0);
+  glPixelZoom((float)vp_w / VIDEO_WIDTH, (float)vp_h / VIDEO_HEIGHT);
   glDrawPixels(VIDEO_WIDTH, VIDEO_HEIGHT, GL_RGB, GL_UNSIGNED_BYTE,
                (uint8_t *)VIDEO_BUFFER);
-  float ratio = min(WINDOW_WIDTH / (float)VIDEO_WIDTH,
-                    WINDOW_HEIGHT / (float)VIDEO_HEIGHT);
-  glPixelZoom(ratio, ratio);
+
+  // Draw profiling overlay in full window coordinates
+  glPixelZoom(1.0f, 1.0f);
+  glViewport(0, 0, WINDOW_WIDTH, WINDOW_HEIGHT);
+  glMatrixMode(GL_PROJECTION);
+  glLoadIdentity();
+  gluOrtho2D(0, WINDOW_WIDTH, 0, WINDOW_HEIGHT);
+  glMatrixMode(GL_MODELVIEW);
+  glLoadIdentity();
+
+  glColor3f(0.0f, 1.0f, 0.0f);
+  char buf[128];
+  uint64_t ips = GUI_P->profile_ips.load(std::memory_order_relaxed);
+  int int08_fps = GUI_P->profile_int08_fps.load(std::memory_order_relaxed);
+  double frame_ms = GUI_P->profile_frame_ms.load(std::memory_order_relaxed);
+  uint64_t inst_count = GUI_P->profile_inst_count.load(std::memory_order_relaxed);
+
+  float text_y = WINDOW_HEIGHT - 18;
+  snprintf(buf, sizeof(buf), "IPS: %llu", (unsigned long long)ips);
+  DrawText(10, text_y, buf);
+  text_y -= 18;
+  snprintf(buf, sizeof(buf), "INT08 FPS: %d", int08_fps);
+  DrawText(10, text_y, buf);
+  text_y -= 18;
+  snprintf(buf, sizeof(buf), "Frame: %.2f ms", frame_ms);
+  DrawText(10, text_y, buf);
+  text_y -= 18;
+  snprintf(buf, sizeof(buf), "Total: %llu", (unsigned long long)inst_count);
+  DrawText(10, text_y, buf);
+  text_y -= 18;
+  snprintf(buf, sizeof(buf), "Render: %dx%d  Window: %dx%d", VIDEO_WIDTH, VIDEO_HEIGHT, WINDOW_WIDTH, WINDOW_HEIGHT);
+  DrawText(10, text_y, buf);
+
   glutSwapBuffers();
 }
 
